@@ -77,7 +77,9 @@
         "gecko": {
             "id": "{83ed8816-aa14-4222-8fb9-7ee58894b3f3}",
             "strict_min_version": "115.0",
-            "data_collection_permissions": {}
+            "data_collection_permissions": {
+                "required": []
+            }
         },
         "gecko_android": {
             "id": "{83ed8816-aa14-4222-8fb9-7ee58894b3f3}",
