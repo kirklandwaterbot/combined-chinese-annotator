@@ -2557,8 +2557,17 @@ function showStrokeOrderNotice(message) {
   const overlay = document.createElement("div");
   overlay.className = "ca-stroke-overlay ca-stroke-notice-overlay";
   overlay.dataset.caStrokeOverlay = "true";
-  overlay.innerHTML = `<div class="ca-stroke-panel ca-stroke-notice"><div>${message}</div><button type="button">Close</button></div>`;
-  overlay.querySelector("button").addEventListener("click", () => overlay.remove());
+  const panel = document.createElement("div");
+  panel.className = "ca-stroke-panel ca-stroke-notice";
+  const msgDiv = document.createElement("div");
+  msgDiv.textContent = message;
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.textContent = "Close";
+  closeBtn.addEventListener("click", () => overlay.remove());
+  panel.appendChild(msgDiv);
+  panel.appendChild(closeBtn);
+  overlay.appendChild(panel);
   document.documentElement.appendChild(overlay);
   window.setTimeout(() => overlay.remove(), 3500);
 }
