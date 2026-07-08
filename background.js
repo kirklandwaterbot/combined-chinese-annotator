@@ -51,6 +51,42 @@ function ensureAnnotatorData() {
   return annotatorDataReady;
 }
 
+// Helper: loads a JSON file that was split into chunks (prefix-1.json,
+// prefix-2.json, ...). Each chunk has a _chunk.total field. The merged result
+// combines all entries under `mergeKey` (or top-level keys if mergeKey is null).
+async function loadChunkedJSON(prefix, mergeKey) {
+  // Load the first chunk to discover the total count
+  const first = await fetch(ext.runtime.getURL(`${prefix}-1.json`)).then((r) => r.json());
+  const total = first._chunk?.total || 1;
+  delete first._chunk;
+
+  if (total === 1) return first;
+
+  // Load remaining chunks in parallel
+  const rest = await Promise.all(
+    Array.from({ length: total - 1 }, (_, i) =>
+      fetch(ext.runtime.getURL(`${prefix}-${i + 2}.json`)).then((r) => r.json())
+    )
+  );
+
+  // Merge: if mergeKey is provided, combine that key's entries; otherwise merge top-level
+  if (mergeKey) {
+    const merged = { ...first };
+    for (const chunk of rest) {
+      delete chunk._chunk;
+      Object.assign(merged[mergeKey], chunk[mergeKey]);
+    }
+    return merged;
+  } else {
+    const merged = { ...first };
+    for (const chunk of rest) {
+      delete chunk._chunk;
+      Object.assign(merged, chunk);
+    }
+    return merged;
+  }
+}
+
 // The CC-CEDICT (~8.5MB) and HSK dictionaries are large lookup tables. Instead
 // of parsing them into the service-worker heap on every wake (Chrome evicts the
 // worker aggressively), import them once into IndexedDB as per-word records and
@@ -139,7 +175,7 @@ function ensureDictionaries() {
       const storedVersion = await idbMetaGet(db, "version");
       if (storedVersion !== DICT_DATA_VERSION) {
         const [cedict, hsk] = await Promise.all([
-          fetch(ext.runtime.getURL("ccedict-glosses.json")).then((r) => r.json()),
+          loadChunkedJSON("ccedict-glosses", "entries"),
           fetch(ext.runtime.getURL("hsk-data.json")).then((r) => r.json())
         ]);
         cedictMaxKeyLength = cedict._meta?.maxKeyLength || cedict.maxKeyLength || 12;
@@ -168,7 +204,7 @@ function ensureDictionaries() {
 
 async function loadDictionariesIntoMemory() {
   try {
-    const cedict = await fetch(ext.runtime.getURL("ccedict-glosses.json")).then((r) => r.json());
+    const cedict = await loadChunkedJSON("ccedict-glosses", "entries");
     cedictEntries = cedict.entries || Object.create(null);
     cedictMaxKeyLength = cedict._meta?.maxKeyLength || cedict.maxKeyLength || 12;
   } catch (error) {
@@ -193,7 +229,7 @@ function ensureStrokeData() {
       const db = await openDictDb();
       const storedVersion = await idbMetaGet(db, "strokeVersion");
       if (storedVersion !== STROKE_DATA_VERSION) {
-        const bundle = await fetch(ext.runtime.getURL("hanzi-writer-data.json")).then((r) => r.json());
+        const bundle = await loadChunkedJSON("hanzi-writer-data", null);
         await importDictionary(db, DICT_STORE_STROKE, bundle);
         const tx = db.transaction(DICT_STORE_META, "readwrite");
         tx.objectStore(DICT_STORE_META).put(STROKE_DATA_VERSION, "strokeVersion");
@@ -204,7 +240,7 @@ function ensureStrokeData() {
       console.warn("Combined Annotator: falling back to in-memory stroke data", error);
       strokeUsable = false;
       try {
-        strokeBundle = await fetch(ext.runtime.getURL("hanzi-writer-data.json")).then((r) => r.json());
+        strokeBundle = await loadChunkedJSON("hanzi-writer-data", null);
       } catch (bundleError) {
         strokeBundle = Object.create(null);
       }

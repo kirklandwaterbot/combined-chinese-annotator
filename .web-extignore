@@ -4,12 +4,17 @@ node_modules/
 # Source stroke files — shipped bundled as hanzi-writer-data.json instead.
 hanzi-writer-data/
 
+# Original large data files — shipped as split chunks instead.
+ccedict-glosses.json
+hanzi-writer-data.json
+
 # Dev / test / tooling — not part of the shipped extension.
 new.png
 tests/
 test-page.html
 test_engine.js
 test_opencc.js
+split-data.js
 package.json
 package-lock.json
 .web-extignore
