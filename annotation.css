@@ -1,0 +1,698 @@
+.ca-unit {
+  display: inline-block;
+  vertical-align: baseline;
+  line-height: 1.05;
+  /* Spacing between units lives in the margin, not padding: the native
+     selection highlight is painted over an inline-block's padding box but not
+     its margins, so this keeps the blue selection out of the inter-unit gaps. */
+  margin: 0 0.06em;
+  text-align: center;
+  text-indent: 0;
+}
+
+.ca-lines {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 18em;
+  line-height: 1;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.ca-line {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  color: #1f2937;
+  font-family: Arial, "Helvetica Neue", sans-serif;
+  font-size: 0.58em;
+  font-weight: 500;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+  text-align: center;
+  white-space: normal;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.ca-english {
+  color: inherit;
+  display: none;
+}
+
+body.ca-english-coloring .ca-english {
+  color: var(--ca-english-color, #374151);
+}
+
+.ca-jyutping,
+.ca-pinyin {
+  color: inherit;
+  display: none;
+}
+
+body.ca-show-english .ca-english { display: inline-flex; }
+body.ca-show-jyutping .ca-jyutping { display: inline-flex; }
+body.ca-show-pinyin .ca-pinyin { display: inline-flex; }
+
+/* HSK 3.0 level badge — sits at the top of the annotation stack, colour-coded
+   from easy (green) to hard (red/purple), hidden unless the setting is on. */
+.ca-hsk-badge {
+  display: none;
+  margin-bottom: 0.1em;
+  padding: 0 0.4em;
+  border-radius: 6px;
+  color: #ffffff;
+  font-family: Arial, "Helvetica Neue", sans-serif;
+  font-size: 0.48em;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+}
+body.ca-show-hsk .ca-hsk-badge { display: inline-block; }
+.ca-hsk-badge { background: #64748b; }
+.ca-hsk-1 { background: #16a34a; }
+.ca-hsk-2 { background: #4d7c0f; }
+.ca-hsk-3 { background: #ca8a04; }
+.ca-hsk-4 { background: #ea580c; }
+.ca-hsk-5 { background: #dc2626; }
+.ca-hsk-6 { background: #b91c1c; }
+.ca-hsk-7 { background: #7e22ce; }
+
+.ca-base {
+  display: block;
+  color: inherit;
+  font: inherit;
+  line-height: 1.05;
+  text-align: center;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Hide native selection highlight completely within the annotated run (and its
+   units) so we can apply our own custom visual highlight based on the selected
+   layer. Targeting the run — not just the unit — is what blanks the native blue
+   in the gaps between characters: those gaps live in the run's inline context,
+   whereas a bare page paragraph would paint them with the default selection. */
+.ca-run::selection,
+.ca-run *::selection,
+.ca-unit::selection,
+.ca-unit *::selection {
+  background: transparent !important;
+  color: inherit !important;
+}
+
+.ca-run {
+  display: inline;
+}
+
+/* Custom visual selection applied via JS */
+.ca-visually-selected {
+  background-color: #b3d4fc; /* Standard selection blue */
+  border-radius: 2px;
+}
+
+/* Tone coloring for romanization lines themselves */
+body.ca-pinyin-tone-coloring .ca-line.ca-pinyin-tone-1 { color: var(--ca-pinyin-tone-1, #e53e3e); }
+body.ca-pinyin-tone-coloring .ca-line.ca-pinyin-tone-2 { color: var(--ca-pinyin-tone-2, #38a169); }
+body.ca-pinyin-tone-coloring .ca-line.ca-pinyin-tone-3 { color: var(--ca-pinyin-tone-3, #3182ce); }
+body.ca-pinyin-tone-coloring .ca-line.ca-pinyin-tone-4 { color: var(--ca-pinyin-tone-4, #805ad5); }
+body.ca-pinyin-tone-coloring .ca-line.ca-pinyin-tone-5 { color: var(--ca-pinyin-tone-5, #718096); }
+
+body.ca-jyutping-tone-coloring .ca-line.ca-jyutping-tone-1 { color: var(--ca-jyutping-tone-1, #e53e3e); }
+body.ca-jyutping-tone-coloring .ca-line.ca-jyutping-tone-2 { color: var(--ca-jyutping-tone-2, #38a169); }
+body.ca-jyutping-tone-coloring .ca-line.ca-jyutping-tone-3 { color: var(--ca-jyutping-tone-3, #3182ce); }
+body.ca-jyutping-tone-coloring .ca-line.ca-jyutping-tone-4 { color: var(--ca-jyutping-tone-4, #805ad5); }
+body.ca-jyutping-tone-coloring .ca-line.ca-jyutping-tone-5 { color: var(--ca-jyutping-tone-5, #718096); }
+body.ca-jyutping-tone-coloring .ca-line.ca-jyutping-tone-6 { color: var(--ca-jyutping-tone-6, #319795); }
+.ca-line-text {
+  display: inline-block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ca-speak {
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  z-index: 2147483647;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35em;
+  height: 1.35em;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
+  font: inherit;
+  font-size: 0.9em;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(0.12em, -50%);
+  transition: opacity 0s;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.ca-speak::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  bottom: -50%;
+  left: -0.5em;
+  width: 0.5em;
+}
+
+.ca-line:hover .ca-speak,
+.ca-line:focus-within .ca-speak,
+.ca-line.ca-speaker-visible .ca-speak,
+.ca-speak:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 150ms ease;
+}
+
+.ca-speak:hover,
+.ca-speak:focus-visible {
+  background: rgba(255, 255, 255, 0.96);
+  outline: none;
+}
+
+.ca-line.ca-speaking .ca-speak {
+  background: #dcfce7;
+  box-shadow: 0 0 0 1px #86efac;
+}
+
+.ca-line.ca-speaking .ca-speak:hover,
+.ca-line.ca-speaking .ca-speak:focus-visible {
+  background: #bbf7d0;
+}
+
+
+
+
+
+
+
+.ca-stroke-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.18);
+  color: #111827;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-indent: 0;
+}
+
+.ca-stroke-panel {
+  width: min(380px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  grid-template-rows: auto auto auto auto auto auto;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.22);
+  overflow: auto;
+}
+
+.ca-stroke-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ca-stroke-title {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+/* Small bare "x" matching the dictionary popup close button. !important guards
+   against opinionated page button styles. */
+.ca-stroke-close {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 3px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #94a3b8 !important;
+  font: 400 16px/1 system-ui, -apple-system, sans-serif !important;
+  cursor: pointer !important;
+}
+
+.ca-stroke-close:hover {
+  background: transparent !important;
+  color: #0f172a !important;
+}
+
+.ca-stroke-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 78px;
+  overflow: auto;
+}
+
+.ca-stroke-char-button {
+  display: inline-block !important;
+  width: 34px !important;
+  height: 34px !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111827;
+  font-family: "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+  font-size: 22px;
+  line-height: 32px !important;
+  text-align: center !important;
+  cursor: pointer;
+}
+
+.ca-stroke-char-button.is-active {
+  border-color: #0f766e;
+  background: #ccfbf1;
+}
+
+.ca-stroke-canvas {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 260px;
+  min-height: 260px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+/* Center the HanziWriter SVG within the canvas and drop the inline-SVG baseline gap. */
+.ca-stroke-canvas svg {
+  display: block;
+  margin: auto;
+}
+
+.ca-stroke-status {
+  min-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ca-stroke-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Speed control gets its own full-width row below Practice/Pause, otherwise the
+   slider is crushed into a single narrow grid column. */
+.ca-stroke-speed {
+  grid-column: 1 / -1;
+}
+
+.ca-stroke-controls button,
+.ca-stroke-notice button {
+  display: block !important;
+  width: 100% !important;
+  min-height: 32px;
+  margin: 0 !important;
+  padding: 8px 12px !important;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #111827;
+  background: #f8fafc;
+  font: 13px/1.2 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-align: center !important;
+  cursor: pointer;
+}
+
+.ca-stroke-controls button:hover,
+.ca-stroke-close:hover,
+.ca-stroke-notice button:hover {
+  background: #eef2f7;
+}
+
+.ca-stroke-notice-overlay {
+  align-items: flex-start;
+  padding-top: 24px;
+  background: transparent;
+  pointer-events: none;
+}
+
+.ca-stroke-notice {
+  width: min(320px, calc(100vw - 32px));
+  pointer-events: auto;
+}
+.ca-stroke-speed {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 46px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: #334155;
+  font-size: 12px;
+}
+
+.ca-stroke-speed input[type="range"] {
+  width: 100%;
+  min-width: 0;
+  accent-color: #0f766e;
+}
+
+.ca-stroke-speed-value {
+  color: #111827;
+  font-variant-numeric: tabular-nums;
+  width: 46px;
+  text-align: right;
+  white-space: nowrap;
+}
+.ca-stroke-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.ca-stroke-mode-toggle {
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  background: #f8fafc;
+  color: #0f172a;
+  font: 12px/1.2 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  cursor: pointer;
+}
+
+.ca-stroke-mode-toggle:hover {
+  background: #eef2f7;
+}
+
+.ca-stroke-annotations {
+  display: grid;
+  gap: 5px;
+  padding: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.ca-stroke-annotation-row {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 7px;
+  min-height: 26px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.ca-stroke-annotation-label {
+  color: #475569;
+  font-weight: 650;
+}
+
+.ca-stroke-annotation-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+.ca-stroke-annotation-speaker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  background: #ffffff;
+  color: inherit;
+  font: 13px/1 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  cursor: pointer;
+}
+
+.ca-stroke-annotation-speaker:hover {
+  background: #eef2f7;
+}
+
+.ca-stroke-annotation-status {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ca-dictionary-popup {
+  position: fixed;
+  z-index: 2147483640;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  padding: 12px 16px;
+  max-width: 300px;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: #1a202c;
+  pointer-events: auto;
+}
+
+/* A small bare "x" in the corner. !important defends against opinionated page
+   button styles (e.g. large padded, colored buttons) that would otherwise win. */
+.ca-dict-close {
+  position: absolute !important;
+  top: 4px !important;
+  right: 4px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 14px !important;
+  height: 14px !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 3px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #94a3b8 !important;
+  font: 400 12px/1 system-ui, -apple-system, sans-serif !important;
+  cursor: pointer !important;
+}
+
+.ca-dict-close:hover {
+  background: transparent !important;
+  color: #0f172a !important;
+}
+
+.ca-dict-save {
+  position: absolute !important;
+  top: 6px !important;
+  right: 26px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 2px 8px !important;
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 999px !important;
+  background: #f8fafc !important;
+  color: #334155 !important;
+  font: 600 11px/1.4 system-ui, -apple-system, sans-serif !important;
+  cursor: pointer !important;
+}
+
+.ca-dict-save:hover {
+  background: #eef2f7 !important;
+}
+
+.ca-dict-save:disabled {
+  color: #0f766e !important;
+  border-color: #99f6e4 !important;
+  background: #f0fdfa !important;
+  cursor: default !important;
+}
+
+.ca-dict-char {
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 8px;
+  padding-right: 90px;
+  color: #2d3748;
+}
+
+/* ---- Dark mode for injected overlays/popups ---- */
+/* Dark theme for the injected overlays/popups. Driven by data-ca-theme on the
+   page's <html>, which content.js sets from the extension's Theme setting (auto
+   resolves against the system) — so these stay consistent with the toolbar
+   popup instead of independently following prefers-color-scheme. */
+[data-ca-theme="dark"] .ca-stroke-panel {
+  border-color: #334155;
+  background: #1e293b;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.55);
+}
+[data-ca-theme="dark"] .ca-stroke-title { color: #e2e8f0; }
+[data-ca-theme="dark"] .ca-stroke-status,
+[data-ca-theme="dark"] .ca-stroke-annotation-status { color: #94a3b8; }
+[data-ca-theme="dark"] .ca-stroke-canvas {
+  border-color: #334155;
+  background: #0f172a;
+}
+[data-ca-theme="dark"] .ca-stroke-annotations {
+  border-color: #334155;
+  background: #0f172a;
+}
+[data-ca-theme="dark"] .ca-stroke-annotation-label { color: #94a3b8; }
+[data-ca-theme="dark"] .ca-stroke-annotation-value { color: #e2e8f0; }
+[data-ca-theme="dark"] .ca-stroke-char-button {
+  border-color: #334155;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+[data-ca-theme="dark"] .ca-stroke-char-button.is-active {
+  border-color: #14b8a6;
+  background: #134e4a;
+}
+[data-ca-theme="dark"] .ca-stroke-controls button,
+[data-ca-theme="dark"] .ca-stroke-notice button,
+[data-ca-theme="dark"] .ca-stroke-mode-toggle,
+[data-ca-theme="dark"] .ca-stroke-annotation-speaker {
+  border-color: #334155;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+[data-ca-theme="dark"] .ca-stroke-controls button:hover,
+[data-ca-theme="dark"] .ca-stroke-mode-toggle:hover,
+[data-ca-theme="dark"] .ca-stroke-annotation-speaker:hover,
+[data-ca-theme="dark"] .ca-stroke-notice button:hover { background: #1e293b; }
+[data-ca-theme="dark"] .ca-stroke-close { color: #94a3b8 !important; }
+[data-ca-theme="dark"] .ca-stroke-close:hover { color: #f8fafc !important; }
+
+[data-ca-theme="dark"] .ca-dictionary-popup {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+[data-ca-theme="dark"] .ca-dict-char { color: #f1f5f9; }
+[data-ca-theme="dark"] .ca-dict-row,
+[data-ca-theme="dark"] .ca-dict-def { color: #cbd5e1; }
+[data-ca-theme="dark"] .ca-dict-label { color: #e2e8f0; }
+[data-ca-theme="dark"] .ca-dict-close { color: #94a3b8 !important; }
+[data-ca-theme="dark"] .ca-dict-close:hover { color: #f8fafc !important; }
+[data-ca-theme="dark"] .ca-dict-save {
+  border-color: #334155 !important;
+  background: #0f172a !important;
+  color: #cbd5e1 !important;
+}
+[data-ca-theme="dark"] .ca-dict-save:hover { background: #1e293b !important; }
+[data-ca-theme="dark"] .ca-dict-save:disabled {
+  color: #5eead4 !important;
+  border-color: #134e4a !important;
+  background: #042f2e !important;
+}
+[data-ca-theme="dark"] .ca-unit.ca-popup-active .ca-base { background: rgba(94, 234, 212, 0.16); }
+
+[data-ca-theme="dark"] .ca-speak {
+  background: rgba(30, 41, 59, 0.92);
+  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.3);
+}
+
+.ca-dict-row {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.35em;
+  align-items: baseline;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #4a5568;
+}
+
+.ca-dict-label {
+  font-weight: 650;
+  color: #334155;
+}
+
+.ca-dict-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ca-dict-def {
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: #4a5568;
+}
+
+.ca-unit.ca-popup-active .ca-base {
+  background: rgba(49, 130, 206, 0.1);
+  border-radius: 4px;
+}
+.ca-tone-token {
+  display: inline;
+}
+body.ca-pinyin-tone-coloring .ca-tone-token.ca-pinyin-tone-1 { color: var(--ca-pinyin-tone-1, #e53e3e); }
+body.ca-pinyin-tone-coloring .ca-tone-token.ca-pinyin-tone-2 { color: var(--ca-pinyin-tone-2, #38a169); }
+body.ca-pinyin-tone-coloring .ca-tone-token.ca-pinyin-tone-3 { color: var(--ca-pinyin-tone-3, #3182ce); }
+body.ca-pinyin-tone-coloring .ca-tone-token.ca-pinyin-tone-4 { color: var(--ca-pinyin-tone-4, #805ad5); }
+body.ca-pinyin-tone-coloring .ca-tone-token.ca-pinyin-tone-5 { color: var(--ca-pinyin-tone-5, #718096); }
+
+body.ca-jyutping-tone-coloring .ca-tone-token.ca-jyutping-tone-1 { color: var(--ca-jyutping-tone-1, #e53e3e); }
+body.ca-jyutping-tone-coloring .ca-tone-token.ca-jyutping-tone-2 { color: var(--ca-jyutping-tone-2, #38a169); }
+body.ca-jyutping-tone-coloring .ca-tone-token.ca-jyutping-tone-3 { color: var(--ca-jyutping-tone-3, #3182ce); }
+body.ca-jyutping-tone-coloring .ca-tone-token.ca-jyutping-tone-4 { color: var(--ca-jyutping-tone-4, #805ad5); }
+body.ca-jyutping-tone-coloring .ca-tone-token.ca-jyutping-tone-5 { color: var(--ca-jyutping-tone-5, #718096); }
+body.ca-jyutping-tone-coloring .ca-tone-token.ca-jyutping-tone-6 { color: var(--ca-jyutping-tone-6, #319795); }
+body.ca-english-coloring .ca-stroke-english {
+  color: var(--ca-english-color, #374151);
+}
+
+body.ca-pinyin-tone-coloring .ca-stroke-annotation-row.ca-pinyin-tone-1 { color: var(--ca-pinyin-tone-1, #e53e3e); }
+body.ca-pinyin-tone-coloring .ca-stroke-annotation-row.ca-pinyin-tone-2 { color: var(--ca-pinyin-tone-2, #38a169); }
+body.ca-pinyin-tone-coloring .ca-stroke-annotation-row.ca-pinyin-tone-3 { color: var(--ca-pinyin-tone-3, #3182ce); }
+body.ca-pinyin-tone-coloring .ca-stroke-annotation-row.ca-pinyin-tone-4 { color: var(--ca-pinyin-tone-4, #805ad5); }
+body.ca-pinyin-tone-coloring .ca-stroke-annotation-row.ca-pinyin-tone-5 { color: var(--ca-pinyin-tone-5, #718096); }
+
+body.ca-jyutping-tone-coloring .ca-stroke-annotation-row.ca-jyutping-tone-1 { color: var(--ca-jyutping-tone-1, #e53e3e); }
+body.ca-jyutping-tone-coloring .ca-stroke-annotation-row.ca-jyutping-tone-2 { color: var(--ca-jyutping-tone-2, #38a169); }
+body.ca-jyutping-tone-coloring .ca-stroke-annotation-row.ca-jyutping-tone-3 { color: var(--ca-jyutping-tone-3, #3182ce); }
+body.ca-jyutping-tone-coloring .ca-stroke-annotation-row.ca-jyutping-tone-4 { color: var(--ca-jyutping-tone-4, #805ad5); }
+body.ca-jyutping-tone-coloring .ca-stroke-annotation-row.ca-jyutping-tone-5 { color: var(--ca-jyutping-tone-5, #718096); }
+body.ca-jyutping-tone-coloring .ca-stroke-annotation-row.ca-jyutping-tone-6 { color: var(--ca-jyutping-tone-6, #319795); }

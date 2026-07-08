@@ -1,0 +1,12 @@
+# Dependencies
+node_modules/
+
+# Build output
+web-ext-artifacts/
+*.zip
+*.xpi
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.log

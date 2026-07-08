@@ -1,0 +1,14 @@
+{
+  "name": "combined-annotator",
+  "version": "1.0.0",
+  "description": "Chinese character annotator for Pinyin and Jyutping",
+  "scripts": {
+    "start": "web-ext run --source-dir .",
+    "build": "web-ext build --source-dir . --overwrite-dest",
+    "lint": "web-ext lint --source-dir .",
+    "test": "node tests/engine.test.js"
+  },
+  "devDependencies": {
+    "web-ext": "^8.2.0"
+  }
+}

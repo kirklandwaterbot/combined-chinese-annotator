@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="utf-8">
+    <title>Combined Annotator Studio</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #f8fafc;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --card-bg: #ffffff;
+            --primary: #0ea5e9;
+            --primary-hover: #0284c7;
+            --border: #e2e8f0;
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', 'Noto Sans TC', system-ui, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 60px 20px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 48px;
+        }
+
+        h1 { font-size: 2.75rem; font-weight: 700; color: #0f172a; margin-bottom: 12px; letter-spacing: -0.025em; }
+        .subtitle { color: var(--text-muted); font-size: 1.15rem; }
+
+        .grid {
+            display: grid;
+            gap: 24px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 32px;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .card:hover {
+            box-shadow: var(--shadow-md);
+            transform: translateY(-2px);
+        }
+
+        .card h2 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: #1e293b;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .card h2::before {
+            content: '';
+            display: block;
+            width: 4px;
+            height: 20px;
+            background-color: var(--primary);
+            border-radius: 4px;
+        }
+
+        p { margin-bottom: 16px; font-size: 1.05rem; }
+        p:last-child { margin-bottom: 0; }
+
+        .interactive-section {
+            background: linear-gradient(145deg, #f0f9ff, #e0f2fe);
+            border-color: #bae6fd;
+        }
+
+        textarea, pre {
+            width: 100%;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.95rem;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            padding: 16px;
+            background: #f8fafc;
+            color: #334155;
+            resize: vertical;
+        }
+        
+        pre { overflow-x: auto; margin-bottom: 16px; }
+        textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.2); }
+
+        button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 1rem;
+            font-weight: 500;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+            margin-top: 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        button:hover { background-color: var(--primary-hover); }
+        button:active { transform: scale(0.98); }
+
+        .badge {
+            display: inline-block;
+            background: #e2e8f0;
+            color: #475569;
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 99px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 12px;
+        }
+
+        a { color: var(--primary); text-decoration: none; font-weight: 500; }
+        a:hover { text-decoration: underline; }
+        
+        .poetry { 
+            font-size: 1.25rem; 
+            font-style: italic; 
+            color: #334155; 
+            text-align: center; 
+            margin: 32px 0;
+            line-height: 2;
+        }
+
+        .spacer { 
+            height: 1200px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            border: 2px dashed var(--border); 
+            border-radius: 16px; 
+            margin: 40px 0; 
+            color: var(--text-muted); 
+            background: #f1f5f9;
+        }
+
+        .injected-node {
+            padding: 16px;
+            background: #ffffff;
+            border-radius: 8px;
+            border-left: 4px solid var(--primary);
+            box-shadow: var(--shadow-sm);
+            animation: slideIn 0.3s ease-out forwards;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Combined Annotator Studio</h1>
+            <p class="subtitle">A comprehensive testing environment for your extension</p>
+        </header>
+
+        <div class="grid">
+            <!-- Basic Annotation -->
+            <div class="card">
+                <span class="badge">Core Test</span>
+                <h2>Mixed Content Processing</h2>
+                <p>我今日去香港飲茶，然後學中文。這是一段混合 English and 中文 的文字。</p>
+                <p>Ensure that the extension correctly parses sentences where English words and <a href="#">clickable anchor links</a> are embedded directly within Chinese text.</p>
+            </div>
+
+            <!-- Ignore Elements -->
+            <div class="card">
+                <span class="badge">Exclusion Test</span>
+                <h2>Ignored Elements</h2>
+                <p>The following elements should <strong>not</strong> be annotated by the extension to preserve formatting and functionality.</p>
+                <pre>&lt;!-- Code block test --&gt;
+function testExtension() {
+  console.log("這裏是 code/pre，不應該被標註。");
+}</pre>
+                <textarea rows="3">這裏是 textarea，不應該被標註。User input areas must remain untouched so users can type freely.</textarea>
+            </div>
+
+            <!-- Poetry & Phrasing -->
+            <div class="card">
+                <span class="badge">Context Test</span>
+                <h2>Classical & Contextual Translation</h2>
+                <div class="poetry">
+                    「春眠不觉晓，处处闻啼鸟。」<br>
+                    「白日依山盡，黃河入海流。」
+                </div>
+                <p><strong>Contextual Resolution:</strong> OpenCC needs to determine correct mappings based on context. For example, 头发 (hair) vs 发现 (discover). In Traditional Chinese, "头发" is "頭髮", while "发现" is "發現".</p>
+                <p>Another example: 面粉 (flour) maps to 麵粉, but 表面 (surface) maps to 表面.</p>
+            </div>
+
+            <!-- Interactive Add -->
+            <div class="card interactive-section">
+                <span class="badge" style="background: #bae6fd; color: #0284c7;">Interactive</span>
+                <h2>Live Injection Test</h2>
+                <p>Test the <code>MutationObserver</code> by injecting new nodes into the DOM dynamically. The extension should detect and annotate them automatically.</p>
+                <textarea id="custom-text" rows="3" placeholder="Paste some Chinese text here (e.g. 測試動態加載) and click Add..."></textarea>
+                <div style="text-align: right;">
+                    <button id="add">
+                        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"></path></svg>
+                        Inject Text Node
+                    </button>
+                </div>
+                <div id="injection-target" style="margin-top: 24px; display: grid; gap: 16px;"></div>
+            </div>
+
+            <!-- Scroll Test -->
+            <div class="spacer">
+                <p>Scroll down to test lazy loading intersection observer...</p>
+            </div>
+
+            <div class="card">
+                <span class="badge">Viewport Test</span>
+                <h2>Lazy Loading Annotation</h2>
+                <p>這段文字在頁面下方，用來測試滾動後才標註 (Intersection Observer)。If the extension is optimized, this text should only be processed once it enters the viewport, rather than on initial page load.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const btn = document.getElementById("add");
+        const target = document.getElementById("injection-target");
+        const input = document.getElementById("custom-text");
+
+        btn.addEventListener("click", () => {
+            const text = input.value.trim() || "新加入的中文內容應該被延遲標註，而且不要重複。";
+            const p = document.createElement("p");
+            p.className = "injected-node";
+            p.textContent = text;
+            target.prepend(p);
+            input.value = '';
+        });
+    </script>
+</body>
+</html>

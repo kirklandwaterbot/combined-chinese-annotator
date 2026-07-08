@@ -1,0 +1,17 @@
+# Source stroke files — shipped bundled as hanzi-writer-data.json instead.
+hanzi-writer-data/
+
+# Dev / test / tooling — not part of the shipped extension.
+new.png
+tests/
+test-page.html
+test_engine.js
+test_opencc.js
+package.json
+package-lock.json
+.web-extignore
+.git/
+.gitignore
+web-ext-artifacts/
+*.zip
+SOURCES.md

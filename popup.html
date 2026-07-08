@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="popup.css">
+    <!-- Set the theme before first paint (system default); popup.js refines it
+         from the saved setting once storage loads. -->
+    <script>document.documentElement.dataset.theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";</script>
+    <script src="popup.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <header class="popup-header">
+        <h1>Chinese Annotator</h1>
+        <button type="button" class="popup-close" id="popupClose" title="Close" aria-label="Close popup">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 6 6 18"/>
+            <path d="m6 6 12 12"/>
+          </svg>
+        </button>
+      </header>
+
+      <nav class="tabs" role="tablist" aria-label="Sections">
+        <button type="button" class="tab is-active" data-tab="display" role="tab" aria-label="Display">
+          <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+          <span class="tab-label">Display</span>
+        </button>
+        <button type="button" class="tab" data-tab="appearance" role="tab" aria-label="Appearance">
+          <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/>
+            <circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/>
+            <circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/>
+            <circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/>
+            <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.01 17.461 2 12 2z"/>
+          </svg>
+          <span class="tab-label">Appearance</span>
+        </button>
+        <button type="button" class="tab" data-tab="words" role="tab" aria-label="Words">
+          <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M10 2v8l3-3 3 3V2"/>
+            <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/>
+          </svg>
+          <span class="tab-label">Words</span>
+        </button>
+        <button type="button" class="tab" data-tab="speech" role="tab" aria-label="Speech">
+          <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/>
+            <path d="M16 9a5 5 0 0 1 0 6"/>
+            <path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>
+          </svg>
+          <span class="tab-label">Speech</span>
+        </button>
+        <button type="button" class="tab" data-tab="convert" role="tab" aria-label="Convert">
+          <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M8 3 4 7l4 4"/>
+            <path d="M4 7h16"/>
+            <path d="m16 21 4-4-4-4"/>
+            <path d="M20 17H4"/>
+          </svg>
+          <span class="tab-label">Convert</span>
+        </button>
+        <button type="button" class="tab" data-tab="settings" role="tab" aria-label="Settings">
+          <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+          <span class="tab-label">Settings</span>
+        </button>
+      </nav>
+
+      <div class="tab-panels">
+        <!-- ============ DISPLAY ============ -->
+        <div class="tab-panel is-active" data-panel="display" role="tabpanel">
+          <div class="bulk-actions">
+            <button id="selectAll" type="button">Select all</button>
+            <button id="selectNone" type="button">Select none</button>
+          </div>
+
+          <section class="annotation-control">
+            <label class="tone-heading toggle-row"><input id="showPinyin" type="checkbox"><span>Pinyin</span></label>
+            <label class="tone-heading toggle-row"><input id="showJyutping" type="checkbox"><span>Jyutping</span></label>
+            <label class="tone-heading toggle-row"><input id="showEnglish" type="checkbox"><span>English</span></label>
+          </section>
+
+          <section class="settings-group">
+            <label class="toggle-row advanced-toggle">
+              <input id="showHsk" type="checkbox">
+              <span>Show HSK 3.0 level</span>
+            </label>
+            <label class="toggle-row advanced-toggle">
+              <input id="hoverOnly" type="checkbox">
+              <span>Annotate on hover only</span>
+            </label>
+          </section>
+        </div>
+
+        <!-- ============ APPEARANCE ============ -->
+        <div class="tab-panel" data-panel="appearance" role="tabpanel">
+          <section class="settings-group">
+            <div class="group-header"><h2 class="group-title">Theme</h2></div>
+            <label class="voice-row">
+              <span>Theme</span>
+              <select id="uiTheme" aria-label="Popup theme">
+                <option value="auto">Auto (system)</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
+          </section>
+
+          <section class="annotation-control tone-control">
+            <div class="color-mode-grid" aria-label="Color toggles">
+              <label class="toggle-row compact-toggle">
+                <input id="enableEnglishColoring" type="checkbox">
+                <span>English Color</span>
+              </label>
+              <label class="toggle-row compact-toggle">
+                <input id="enablePinyinToneColoring" type="checkbox">
+                <span>Pinyin Colors</span>
+              </label>
+              <label class="toggle-row compact-toggle">
+                <input id="enableJyutpingToneColoring" type="checkbox">
+                <span>Jyutping Colors</span>
+              </label>
+            </div>
+
+            <h3 class="tone-heading">Pinyin Tones</h3>
+            <div class="color-row"><div class="color-input-wrap"><input id="pinyinTone1Color" type="color" aria-label="Pinyin Tone 1"></div><span>Tone 1 (Red)</span></div>
+            <div class="color-row"><div class="color-input-wrap"><input id="pinyinTone2Color" type="color" aria-label="Pinyin Tone 2"></div><span>Tone 2 (Green)</span></div>
+            <div class="color-row"><div class="color-input-wrap"><input id="pinyinTone3Color" type="color" aria-label="Pinyin Tone 3"></div><span>Tone 3 (Blue)</span></div>
+            <div class="color-row"><div class="color-input-wrap"><input id="pinyinTone4Color" type="color" aria-label="Pinyin Tone 4"></div><span>Tone 4 (Purple)</span></div>
+            <div class="color-row"><div class="color-input-wrap"><input id="pinyinTone5Color" type="color" aria-label="Pinyin Neutral Tone"></div><span>Neutral Tone (Gray)</span></div>
+
+            <h3 class="tone-heading">Jyutping Tones</h3>
+            <div class="color-row"><div class="color-input-wrap"><input id="jyutpingTone1Color" type="color" aria-label="Jyutping Tone 1"></div><span>Tone 1 (Red)</span></div>
+            <div class="color-row"><div class="color-input-wrap"><input id="jyutpingTone2Color" type="color" aria-label="Jyutping Tone 2"></div><span>Tone 2 (Green)</span></div>
+            <div class="color-row"><div class="color-input-wrap"><input id="jyutpingTone3Color" type="color" aria-label="Jyutping Tone 3"></div><span>Tone 3 (Blue)</span></div>
+            <div class="color-row"><div class="color-input-wrap"><input id="jyutpingTone4Color" type="color" aria-label="Jyutping Tone 4"></div><span>Tone 4 (Purple)</span></div>
+            <div class="color-row"><div class="color-input-wrap"><input id="jyutpingTone5Color" type="color" aria-label="Jyutping Tone 5"></div><span>Tone 5 (Gray)</span></div>
+            <div class="color-row"><div class="color-input-wrap"><input id="jyutpingTone6Color" type="color" aria-label="Jyutping Tone 6"></div><span>Tone 6 (Teal)</span></div>
+          </section>
+
+          <section class="annotation-control">
+            <h3 class="tone-heading">English</h3>
+            <div class="color-row">
+              <div class="color-input-wrap"><input id="englishColor" type="color" aria-label="English color"></div>
+              <div class="palette" data-target="englishColor" aria-label="Suggested English colors"></div>
+            </div>
+          </section>
+
+          <section class="annotation-control">
+            <label class="toggle-row"><span>Accent color</span></label>
+            <div class="color-row">
+              <div class="color-input-wrap"><input id="uiAccent" type="color" aria-label="Accent color"></div>
+              <div class="palette" data-target="uiAccent" aria-label="Suggested accent colors"></div>
+            </div>
+          </section>
+        </div>
+
+        <!-- ============ WORDS ============ -->
+        <div class="tab-panel" data-panel="words" role="tabpanel">
+          <section class="settings-group vocab-panel" aria-labelledby="vocabTitle">
+            <div class="group-header"><h2 id="vocabTitle" class="group-title">Saved Words</h2></div>
+            <div id="vocabList" class="vocab-list" aria-live="polite"></div>
+            <div class="actions-grid">
+              <button id="export-anki" class="action-button" title="Download as a tab-separated file you can import into Anki">Export to Anki</button>
+              <button id="clear-vocab" class="action-button">Clear all</button>
+            </div>
+          </section>
+
+          <section class="settings-group">
+            <div class="group-header"><h2 class="group-title">Export</h2></div>
+            <div class="actions-grid">
+              <button id="export-vocabulary" class="action-button" title="Export the words on this page to a CSV file">Export page to CSV</button>
+            </div>
+          </section>
+        </div>
+
+        <!-- ============ SPEECH ============ -->
+        <div class="tab-panel" data-panel="speech" role="tabpanel">
+          <section class="speech-panel" aria-labelledby="speechTitle">
+            <h2 id="speechTitle">Speech test</h2>
+            <div class="speech-tests">
+              <button id="testEnglish" type="button" data-speech-label="English">English</button>
+              <button id="testPinyin" type="button" data-speech-label="Pinyin">Mandarin</button>
+              <button id="testJyutping" type="button" data-speech-label="Jyutping">Cantonese</button>
+            </div>
+            <label class="voice-row"><span>English voice</span><select id="englishVoice" aria-label="English voice"></select></label>
+            <label class="voice-row"><span>Mandarin voice</span><select id="pinyinVoice" aria-label="Mandarin voice"></select></label>
+            <label class="voice-row"><span>Cantonese voice</span><select id="jyutpingVoice" aria-label="Cantonese voice"></select></label>
+          </section>
+        </div>
+
+        <!-- ============ CONVERT ============ -->
+        <div class="tab-panel" data-panel="convert" role="tabpanel">
+          <section class="settings-group">
+            <div class="group-header"><h2 class="group-title">Character Conversion</h2></div>
+            <div class="actions-grid">
+              <button id="convert-page-traditional" class="action-button">Page to Traditional</button>
+              <button id="convert-page-simplified" class="action-button">Page to Simplified</button>
+              <button id="convert-page-original" class="action-button">Revert to Original</button>
+            </div>
+          </section>
+        </div>
+
+        <!-- ============ SETTINGS ============ -->
+        <div class="tab-panel" data-panel="settings" role="tabpanel">
+          <section class="settings-group">
+            <div class="group-header"><h2 class="group-title">Behavior</h2></div>
+            <label class="voice-row">
+              <span>Copy format</span>
+              <select id="copyFormat" aria-label="Copy format">
+                <option value="smart">Smart (Hovered layer only)</option>
+                <option value="horizontal">Horizontal (Hovered layer only)</option>
+                <option value="all-top-bottom">All layers ↓ (Top to Bottom)</option>
+                <option value="all-bottom-top">All layers ↑ (Bottom to Top)</option>
+                <option value="per-char-top-bottom">Per character ↓ (Top to Bottom)</option>
+                <option value="per-char-bottom-top">Per character ↑ (Bottom to Top)</option>
+              </select>
+            </label>
+            <label class="toggle-row advanced-toggle">
+              <input id="disableOnSite" type="checkbox">
+              <span>Disable on this site</span>
+            </label>
+          </section>
+
+          <section class="settings-group">
+            <div class="group-header"><h2 class="group-title">Settings Backup</h2></div>
+            <div class="actions-grid">
+              <button id="export-settings" class="action-button">Export Settings</button>
+              <button id="import-settings" class="action-button">Import Settings</button>
+              <input type="file" id="import-settings-file" accept=".json" hidden>
+            </div>
+          </section>
+
+          <section class="coverage-panel" aria-labelledby="coverageTitle">
+            <div class="group-header"><h2 id="coverageTitle" class="group-title">Coverage Inspector</h2></div>
+            <div class="actions-grid">
+              <button id="refreshVisible" type="button">Re-annotate visible page</button>
+              <button id="inspectCoverage" type="button">Check visible coverage</button>
+            </div>
+            <pre id="coverageOutput" class="coverage-output" aria-live="polite"></pre>
+          </section>
+        </div>
+      </div>
+
+      <p id="status" aria-live="polite"></p>
+    </main>
+  </body>
+</html>
