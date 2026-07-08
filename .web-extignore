@@ -1,3 +1,6 @@
+# Dependencies — not part of the shipped extension.
+node_modules/
+
 # Source stroke files — shipped bundled as hanzi-writer-data.json instead.
 hanzi-writer-data/
 
