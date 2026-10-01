@@ -28,7 +28,7 @@
   max-width: 100%;
   color: #1f2937;
   font-family: Arial, "Helvetica Neue", sans-serif;
-  font-size: 0.58em;
+  font-size: calc(0.58em * var(--ca-annotation-scale, 1));
   font-weight: 500;
   line-height: 1.05;
   overflow-wrap: anywhere;
@@ -92,6 +92,96 @@ body.ca-show-hsk .ca-hsk-badge { display: inline-block; }
   user-select: text;
   -webkit-user-select: text;
 }
+
+/* Adaptive layout keeps dense multi-language stacks out of narrow cards and
+   sidebars. The run mode is assigned from the width of its nearest block. */
+.ca-run[data-ca-layout="primary"] .ca-line,
+.ca-run[data-ca-layout="primary"] .ca-hsk-badge {
+  display: none !important;
+}
+
+body.ca-show-jyutping .ca-run[data-ca-layout="primary"][data-ca-primary="jyutping"] .ca-jyutping,
+body.ca-show-pinyin .ca-run[data-ca-layout="primary"][data-ca-primary="pinyin"] .ca-pinyin,
+body.ca-show-english .ca-run[data-ca-layout="primary"][data-ca-primary="english"] .ca-english {
+  display: inline-flex !important;
+}
+
+.ca-run[data-ca-layout="popup"] {
+  display: inline;
+  max-width: none;
+  white-space: inherit;
+  overflow-wrap: inherit;
+  word-break: inherit;
+}
+
+.ca-run[data-ca-layout="popup"] .ca-lines {
+  display: none !important;
+}
+
+.ca-run[data-ca-layout="popup"] .ca-unit,
+.ca-run[data-ca-layout="popup"] .ca-base {
+  display: inline;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  white-space: inherit;
+  overflow-wrap: inherit;
+  word-break: inherit;
+  text-align: inherit;
+  vertical-align: baseline;
+}
+
+.ca-run[data-ca-layout="popup"] .ca-base {
+  text-decoration: underline dotted color-mix(in srgb, currentColor 35%, transparent);
+  text-decoration-thickness: 0.06em;
+  text-underline-offset: 0.12em;
+}
+
+/* Pronunciation-only mode: hide Chinese characters, show only romanization.
+   On hover/peek, reveal the character so the reader can check. */
+.ca-run[data-ca-layout="pronunciation"] .ca-base {
+  display: none;
+}
+body.ca-peek-active .ca-run[data-ca-layout="pronunciation"] .ca-base,
+.ca-run[data-ca-layout="pronunciation"]:hover .ca-base {
+  display: block;
+}
+
+body.ca-peek-active .ca-run[data-ca-layout="primary"] .ca-line {
+  display: inline-flex !important;
+}
+
+body.ca-peek-active .ca-run[data-ca-layout="popup"] .ca-unit {
+  position: relative;
+}
+
+body.ca-peek-active .ca-run[data-ca-layout="popup"] .ca-unit:hover .ca-lines {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 0.2em);
+  z-index: 2147483638;
+  display: flex !important;
+  min-width: max-content;
+  max-width: min(18em, 80vw);
+  padding: 0.28em 0.42em;
+  border: 1px solid rgba(100, 116, 139, 0.35);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 5px 18px rgba(15, 23, 42, 0.16);
+  transform: translateX(-50%);
+}
+
+[data-ca-theme="dark"] body.ca-peek-active .ca-run[data-ca-layout="popup"] .ca-unit:hover .ca-lines {
+  background: rgba(15, 23, 42, 0.97);
+}
+
+body[data-ca-spacing="compact"] .ca-unit { margin-inline: 0.015em; }
+body[data-ca-spacing="compact"] .ca-line { line-height: 0.95; }
+body[data-ca-spacing="relaxed"] .ca-unit { margin-inline: 0.12em; }
+body[data-ca-spacing="relaxed"] .ca-line { line-height: 1.2; }
 
 /* Hide native selection highlight completely within the annotated run (and its
    units) so we can apply our own custom visual highlight based on the selected
@@ -317,10 +407,21 @@ body.ca-jyutping-tone-coloring .ca-line.ca-jyutping-tone-6 { color: var(--ca-jyu
   overflow: hidden;
 }
 
-/* Center the HanziWriter SVG within the canvas and drop the inline-SVG baseline gap. */
-.ca-stroke-canvas svg {
-  display: block;
-  margin: auto;
+/* The canvas renderer isolates Hanzi Writer from host-page SVG/path rules. Keep
+   both renderers constrained here so a fallback cannot inherit page sizing. */
+.ca-stroke-canvas > canvas,
+.ca-stroke-canvas > svg {
+  display: block !important;
+  flex: 0 0 auto !important;
+  width: auto !important;
+  height: auto !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  margin: auto !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 .ca-stroke-status {
@@ -569,6 +670,8 @@ body.ca-jyutping-tone-coloring .ca-line.ca-jyutping-tone-6 { color: var(--ca-jyu
   box-shadow: 0 18px 45px rgba(0, 0, 0, 0.55);
 }
 [data-ca-theme="dark"] .ca-stroke-title { color: #e2e8f0; }
+[data-ca-theme="dark"] .ca-stroke-speed,
+[data-ca-theme="dark"] .ca-stroke-speed-value { color: #f8fafc !important; }
 [data-ca-theme="dark"] .ca-stroke-status,
 [data-ca-theme="dark"] .ca-stroke-annotation-status { color: #94a3b8; }
 [data-ca-theme="dark"] .ca-stroke-canvas {
@@ -696,3 +799,21 @@ body.ca-jyutping-tone-coloring .ca-stroke-annotation-row.ca-jyutping-tone-3 { co
 body.ca-jyutping-tone-coloring .ca-stroke-annotation-row.ca-jyutping-tone-4 { color: var(--ca-jyutping-tone-4, #805ad5); }
 body.ca-jyutping-tone-coloring .ca-stroke-annotation-row.ca-jyutping-tone-5 { color: var(--ca-jyutping-tone-5, #718096); }
 body.ca-jyutping-tone-coloring .ca-stroke-annotation-row.ca-jyutping-tone-6 { color: var(--ca-jyutping-tone-6, #319795); }
+.ca-speech-notice {
+  all: initial;
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 2147483647;
+  box-sizing: border-box;
+  width: min(560px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  padding: 12px 16px;
+  border: 1px solid #f59e0b;
+  border-radius: 10px;
+  background: #fffbeb;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.24);
+  color: #78350f;
+  font: 600 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-align: left;
+}

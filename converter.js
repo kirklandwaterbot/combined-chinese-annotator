@@ -9,6 +9,11 @@ const tw2s = globalThis.OpenCC.Converter({ from: "tw", to: "cn" });
 
 function toSimplified(text) {
   const value = String(text || "");
+  // OpenCC's direct Traditional -> Simplified pass treats an isolated simplified
+  // 么 as the traditional form of 幺. Preserve text that already round-trips as
+  // canonical Simplified so repeated conversion stays idempotent (怎么, not 怎幺).
+  const canonicalSimplified = t2s(s2t(value));
+  if (canonicalSimplified === value) return value;
   const direct = t2s(value);
   if (direct !== value) return direct;
   const hongKong = hk2s(value);

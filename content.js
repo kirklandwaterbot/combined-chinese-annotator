@@ -1,5 +1,10 @@
 const hasBrowserApi = typeof browser !== "undefined";
 const ext = hasBrowserApi ? browser : chrome;
+const Core = globalThis.CombinedAnnotatorCore;
+const LAYOUT_REVISION = "wide-reading-cards-v5";
+const SELECTION_LOGO_DIAGNOSTICS_REVISION = "cross-frame-v2";
+document.documentElement.dataset.caLayoutRevision = LAYOUT_REVISION;
+document.documentElement.dataset.caSelectionLogoDiagnosticsRevision = SELECTION_LOGO_DIAGNOSTICS_REVISION;
 
 const CHINESE_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
 const SKIP_TAGS = new Set([
@@ -27,53 +32,44 @@ const SKIP_TAGS = new Set([
 const SCAN_TEXT_NODES_PER_TICK = 350;
 const MAX_BATCH_NODES = 14;
 const MAX_BATCH_CHARS = 2200;
+const MAX_CONCURRENT_ANNOTATIONS = 4;
 const MAX_TEXT_NODE_CHARS = 700;
 const BATCH_PAUSE_MS = 24;
 const CACHE_LIMIT = 500;
 const SPEAKER_HIDE_DELAY_MS = 800;
 const SPEAKER_FINISHED_HIDE_DELAY_MS = 0;
+const SPEECH_VOICE_WAIT_MS = 800;
+const SPEECH_CANCEL_SETTLE_MS = 500;
+const STROKE_DATA_TIMEOUT_MS = 8000;
 const VIEWPORT_TEXT_MARGIN_PX = 900;
 const VIEWPORT_REFRESH_DELAY_MS = 180;
 const COVERAGE_SWEEP_DELAY_MS = 650;
 const MAX_COVERAGE_SWEEPS = 24;
 const FORCE_VISIBLE_NODE_LIMIT = 1800;
 const COVERAGE_SAMPLE_LIMIT = 8;
+const EDITOR_COPY_FRESHNESS_MS = 5 * 60 * 1000;
 
-let settings = {
-  showJyutping: true,
-  showPinyin: false,
-  showEnglish: false,
-  enableEnglishColoring: true,
-  enablePinyinToneColoring: true,
-  enableJyutpingToneColoring: true,
-  englishColor: "#374151",
-  pinyinTone1Color: "#e53e3e",
-  pinyinTone2Color: "#38a169",
-  pinyinTone3Color: "#3182ce",
-  pinyinTone4Color: "#805ad5",
-  pinyinTone5Color: "#718096",
-  jyutpingTone1Color: "#e53e3e",
-  jyutpingTone2Color: "#38a169",
-  jyutpingTone3Color: "#3182ce",
-  jyutpingTone4Color: "#805ad5",
-  jyutpingTone5Color: "#718096",
-  jyutpingTone6Color: "#319795",
-  jyutpingVoice: "",
-  pinyinVoice: "",
-  englishVoice: "",
-  copyFormat: "smart",
-  hoverOnly: false,
-  showHsk: false,
-  uiTheme: "auto"
-};
+let settings = Core.normalizeSettings();
 let scanQueue = [];
 let scanScheduled = false;
 let annotationQueue = [];
 let annotationScheduled = false;
+let annotationProcessing = false;
+let annotationSequence = 0;
+let annotationCompletedCount = 0;
+let annotationFailedCount = 0;
+let annotationTotalQueued = 0;
+let annotationStopped = false;
+let annotatePlainTextGeneration = 0;
+let pausedUntil = 0;
+let pauseMode = null;
 let mutationTimer = 0;
 let observerPaused = false;
 let pageVersion = 0;
+let pageConversionChain = Promise.resolve();
 let speechRequestCounter = 0;
+let speechStartSequence = 0;
+let activeAzureSpeech = null;
 let globalSpeakerHandlersInstalled = false;
 let lastPointerSelectionKind = "";
 let lastPointerSelectionAt = 0;
@@ -91,14 +87,21 @@ const activeSpeechLines = new Map();
 const speechUiTimers = new Map();
 let lastSpeechDiagnostic = null;
 let speechDiagnosticWaiters = [];
-let lastSpeakRequest = { line: null, time: 0 };
-let lastContextSpeakRequest = { key: "", time: 0 };
 let lastContextChineseCharacter = "";
+let lastContextSpeak = { key: "", time: 0, slowNext: true };
 let strokeOverlayState = null;
 let strokeSpeedRestartTimer = 0;
 let viewportRefreshTimer = 0;
 let coverageSweepTimer = 0;
 let coverageSweepCount = 0;
+let selectionToolsTimer = 0;
+let selectionActionRange = null;
+let selectionActionText = "";
+let selectionActionUsesClipboard = false;
+let selectionToolsDismissedForScroll = false;
+let selectionScrollDiagnosticAt = 0;
+let lastEditorCopySignal = { source: "none", observedAt: 0 };
+let lastSelectionLogoEvaluation = { key: "", observedAt: 0 };
 
 const viewportObserver = new IntersectionObserver(handleIntersections, {
   root: null,
@@ -107,9 +110,236 @@ const viewportObserver = new IntersectionObserver(handleIntersections, {
 });
 
 const mutationObserver = new MutationObserver(handleMutations);
+const layoutRunsByContainer = new WeakMap();
+const layoutContextByContainer = new WeakMap();
+const layoutContextByRun = new WeakMap();
+const layoutUnsafeContainers = new WeakSet();
+const observedLayoutContainers = new WeakSet();
+const pendingLayoutContainers = new Map();
+const observedEditorCopyEvents = new WeakSet();
+const READING_CONTAINER_TAGS = new Set(["P", "LI", "DD", "DT", "BLOCKQUOTE", "ARTICLE", "SECTION", "MAIN", "TD", "TH", "H1", "H2", "H3", "H4", "H5", "H6"]);
+const COMPACT_UI_SELECTOR = 'nav a, nav [role="link"], [role="navigation"] a, [role="navigation"] [role="link"], [role="menuitem"], [role="tab"], [role="option"], [role="tooltip"]';
+const COMPACT_UI_NAME_RE = /(?:^|[-_])(title|metadata|menu|tooltip|overlay|chip|badge|card)(?:[-_]|$)/i;
+let layoutFrame = 0;
+const layoutObserver = typeof ResizeObserver === "function" ? new ResizeObserver((entries) => {
+  for (const entry of entries) pendingLayoutContainers.set(entry.target, entry.contentRect?.width);
+  if (layoutFrame) return;
+  layoutFrame = requestAnimationFrame(() => {
+    layoutFrame = 0;
+    const pending = Array.from(pendingLayoutContainers.entries());
+    pendingLayoutContainers.clear();
+    for (const [container, width] of pending) refreshContainerLayouts(container, width);
+  });
+}) : null;
+
+function annotationLayoutContainer(source) {
+  let current = source?.matches?.(".ca-run") ? source.parentElement : source;
+  const candidates = [];
+  while (current && current !== document.body && candidates.length < 5) {
+    const display = getComputedStyle(current).display;
+    if (["block", "flex", "grid", "table-cell", "list-item"].includes(display)) {
+      const rect = current.getBoundingClientRect?.();
+      candidates.push({
+        element: current,
+        display,
+        reading: READING_CONTAINER_TAGS.has(current.nodeName),
+        width: Math.max(rect?.width || 0, current.clientWidth || 0)
+      });
+    }
+    current = current.parentElement;
+  }
+  const selected = Core.chooseLayoutContainerIndex(candidates);
+  return candidates[selected]?.element || candidates[0]?.element || current || document.body;
+}
+
+function availableInlineWidth(container) {
+  const widths = [];
+  let current = container;
+  for (let depth = 0; current && depth < 3; depth++, current = current.parentElement) {
+    const rectWidth = current.getBoundingClientRect?.().width || 0;
+    const clientWidth = current.clientWidth || 0;
+    if (rectWidth > 0) widths.push(rectWidth);
+    if (clientWidth > 0) widths.push(clientWidth);
+  }
+  return widths.length ? Math.min(...widths) : window.innerWidth;
+}
+
+function computedLineHeight(style) {
+  const explicit = Number.parseFloat(style?.lineHeight);
+  if (Number.isFinite(explicit)) return explicit;
+  return (Number.parseFloat(style?.fontSize) || 16) * 1.2;
+}
+
+function hasCompactUiName(element) {
+  if (!element) return false;
+  const names = `${element.id || ""} ${typeof element.className === "string" ? element.className : ""}`;
+  return COMPACT_UI_NAME_RE.test(names);
+}
+
+function isWideReadingRoleButton(element) {
+  if (!element) return false;
+  const style = getComputedStyle(element);
+  const clamp = Number.parseInt(style.webkitLineClamp, 10);
+  const constrained = style.whiteSpace === "nowrap"
+    || style.textOverflow === "ellipsis"
+    || (Number.isFinite(clamp) && clamp > 0);
+  const rect = element.getBoundingClientRect();
+  return Core.isWideReadingControl(rect.width, rect.height, computedLineHeight(style), constrained);
+}
+
+function isCompactUiSurface(source, container) {
+  if (!source || !container || layoutUnsafeContainers.has(container)) return Boolean(container && layoutUnsafeContainers.has(container));
+  if (source.closest?.(COMPACT_UI_SELECTOR)) return true;
+  const roleButton = source.closest?.('[role="button"]');
+  if (roleButton && !isWideReadingRoleButton(roleButton)) return true;
+  const width = availableInlineWidth(container);
+  if (width < 320 && source.closest?.('a, [role="link"]')) return true;
+  let current = source;
+  for (let depth = 0; current && depth < 6; depth++, current = current.parentElement) {
+    const style = getComputedStyle(current);
+    const clamp = Number.parseInt(style.webkitLineClamp, 10);
+    if (style.whiteSpace === "nowrap" || style.textOverflow === "ellipsis" || (Number.isFinite(clamp) && clamp > 0)) return true;
+    if (width < 720 && hasCompactUiName(current)) return true;
+    if (current === container) break;
+  }
+  const style = getComputedStyle(container);
+  const height = container.getBoundingClientRect().height || 0;
+  const shortNonReadingUi = !READING_CONTAINER_TAGS.has(container.nodeName)
+    && width > 0 && width < 720
+    && height > 0 && height <= computedLineHeight(style) * 3.25;
+  return shortNonReadingUi;
+}
+
+function captureLayoutContext(source) {
+  const container = annotationLayoutContainer(source);
+  if (!container) return null;
+  const style = getComputedStyle(container);
+  const rect = container.getBoundingClientRect();
+  const compact = isCompactUiSurface(source, container);
+  return {
+    container,
+    width: availableInlineWidth(container),
+    compact,
+    compactReason: compact ? "compact-ui" : "",
+    baselineHeight: rect.height || 0,
+    baselineClientWidth: container.clientWidth || rect.width || 0,
+    baselineScrollWidth: container.scrollWidth || 0,
+    lineHeight: computedLineHeight(style)
+  };
+}
+
+function primaryLayerForSettings() {
+  const configured = settings.primaryLayer;
+  if (configured === "jyutping" && settings.showJyutping) return configured;
+  if (configured === "pinyin" && settings.showPinyin) return configured;
+  if (configured === "english" && settings.showEnglish) return configured;
+  if (settings.showJyutping) return "jyutping";
+  if (settings.showPinyin) return "pinyin";
+  return "english";
+}
+
+function applyRunLayout(run, width, context = {}) {
+  if (!run) return;
+  const mode = Core.chooseSafeLayout(width, settings, context);
+  run.dataset.caLayout = mode;
+  run.dataset.caPrimary = primaryLayerForSettings();
+  if (context.compact) run.dataset.caLayoutGuard = context.compactReason || "compact-ui";
+  else delete run.dataset.caLayoutGuard;
+}
+
+function refreshContainerLayouts(container, measuredWidth) {
+  const runs = layoutRunsByContainer.get(container);
+  if (!runs) return;
+  const previous = layoutContextByContainer.get(container) || {};
+  const liveWidth = availableInlineWidth(container);
+  const width = Math.min(...[Number(measuredWidth), liveWidth].filter((value) => value > 0));
+  const resolvedWidth = Number.isFinite(width) ? width : liveWidth;
+  const containerUnsafe = layoutUnsafeContainers.has(container);
+  const context = { ...previous, width: resolvedWidth, compact: containerUnsafe, compactReason: containerUnsafe ? "overflow" : "" };
+  layoutContextByContainer.set(container, context);
+  for (const run of [...runs]) {
+    if (!run.isConnected) {
+      runs.delete(run);
+      continue;
+    }
+    const remembered = layoutContextByRun.get(run) || captureLayoutContext(run.parentElement) || {};
+    const runCompact = containerUnsafe || isCompactUiSurface(run.parentElement, container);
+    const runContext = {
+      ...context,
+      ...remembered,
+      container,
+      width: resolvedWidth,
+      compact: runCompact,
+      compactReason: containerUnsafe ? "overflow" : (runCompact ? "compact-ui" : "")
+    };
+    layoutContextByRun.set(run, runContext);
+    applyRunLayout(run, runContext.width, runContext);
+  }
+}
+
+function verifyRunLayoutSafety(run, context) {
+  if (!run?.isConnected || !context?.container || run.dataset.caLayout === "popup") return;
+  // Reading containers are expected to grow vertically as annotations stack.
+  // Treating their transient scroll width as a compact-UI failure collapses an
+  // entire article paragraph after its annotations briefly appear.
+  if (READING_CONTAINER_TAGS.has(context.container.nodeName)) return;
+  requestAnimationFrame(() => {
+    if (!run.isConnected || !context.container.isConnected || run.dataset.caLayout === "popup") return;
+    const clientWidth = context.container.clientWidth || context.container.getBoundingClientRect().width || 0;
+    const overflowBefore = Math.max(0, context.baselineScrollWidth - context.baselineClientWidth);
+    const overflowAfter = Math.max(0, context.container.scrollWidth - clientWidth);
+    if (overflowAfter <= overflowBefore + 4) return;
+    layoutUnsafeContainers.add(context.container);
+    const safeContext = { ...context, width: availableInlineWidth(context.container), compact: true, compactReason: "overflow" };
+    layoutContextByContainer.set(context.container, safeContext);
+    const affectedRuns = layoutRunsByContainer.get(context.container) || [run];
+    for (const affectedRun of affectedRuns) {
+      const affectedContext = { ...(layoutContextByRun.get(affectedRun) || {}), ...safeContext };
+      layoutContextByRun.set(affectedRun, affectedContext);
+      applyRunLayout(affectedRun, affectedContext.width, affectedContext);
+    }
+  });
+}
+
+function registerRunLayout(run, preparedContext = null) {
+  const context = preparedContext?.container?.isConnected ? preparedContext : captureLayoutContext(run?.parentElement);
+  const container = context?.container || annotationLayoutContainer(run);
+  if (!container) return;
+  const previous = layoutContextByContainer.get(container);
+  const containerUnsafe = layoutUnsafeContainers.has(container);
+  const sharedContext = {
+    ...(context || {}),
+    ...(previous || {}),
+    container,
+    width: context?.width || previous?.width || availableInlineWidth(container),
+    compact: containerUnsafe,
+    compactReason: containerUnsafe ? "overflow" : ""
+  };
+  const activeContext = {
+    ...sharedContext,
+    ...(context || {}),
+    container,
+    width: sharedContext.width,
+    compact: Boolean(context?.compact || containerUnsafe),
+    compactReason: containerUnsafe ? "overflow" : (context?.compact ? (context.compactReason || "compact-ui") : "")
+  };
+  layoutContextByContainer.set(container, sharedContext);
+  layoutContextByRun.set(run, activeContext);
+  if (!layoutRunsByContainer.has(container)) layoutRunsByContainer.set(container, new Set());
+  layoutRunsByContainer.get(container).add(run);
+  applyRunLayout(run, activeContext.width || availableInlineWidth(container), activeContext);
+  verifyRunLayoutSafety(run, activeContext);
+  if (layoutObserver && !observedLayoutContainers.has(container)) {
+    observedLayoutContainers.add(container);
+    layoutObserver.observe(container);
+  }
+}
 
 function anyEnabled(active = settings) {
   if (siteDisabled) return false;
+  if (annotationStopped) return false;
+  if (pauseMode === "page") return false;
+  if (pauseMode === "timer" && pausedUntil > Date.now()) return false;
   return active.showJyutping || active.showPinyin || active.showEnglish;
 }
 
@@ -121,7 +351,10 @@ function scheduleIdle(callback, timeout = 80) {
   window.setTimeout(callback, 0);
 }
 
-function sendMessage(message) {
+const SEND_MESSAGE_MAX_RETRIES = 3;
+const SEND_MESSAGE_BASE_DELAY_MS = 200;
+
+function sendMessageOnce(message) {
   if (hasBrowserApi) {
     return ext.runtime.sendMessage(message).then((response) => {
       if (response && response.error) throw new Error(response.error);
@@ -142,6 +375,23 @@ function sendMessage(message) {
       }
       resolve(response);
     });
+  });
+}
+
+function isChannelClosedError(error) {
+  const message = String(error?.message || "");
+  return message.includes("message channel closed") || message.includes("receiving end does not exist");
+}
+
+function sendMessage(message, retries = SEND_MESSAGE_MAX_RETRIES) {
+  return sendMessageOnce(message).catch((error) => {
+    if (retries > 0 && isChannelClosedError(error)) {
+      // Exponential backoff: 200ms, 400ms, 800ms
+      const delay = SEND_MESSAGE_BASE_DELAY_MS * Math.pow(2, SEND_MESSAGE_MAX_RETRIES - retries);
+      return new Promise((resolve) => window.setTimeout(resolve, delay))
+        .then(() => sendMessage(message, retries - 1));
+    }
+    throw error;
   });
 }
 
@@ -197,10 +447,90 @@ function saveVocabEntry(entry) {
   });
 }
 
+let pageLanguageHint = "unknown";
+
+function isNativeCaptionElement(element) {
+  if (!element?.closest) return false;
+  const candidate = element.closest(
+    ".ytp-caption-segment, .ytp-caption-window-container, [data-purpose='captions-cue-text'], [class*='caption' i], [class*='subtitle' i]"
+  );
+  if (!candidate) return false;
+  if (candidate.matches(".ytp-caption-segment, .ytp-caption-window-container, [data-purpose='captions-cue-text']")) return true;
+  const className = String(candidate.className || "").toLowerCase();
+  if (!className.includes("caption") && !className.includes("subtitle")) return false;
+  const style = getComputedStyle(candidate);
+  const rect = candidate.getBoundingClientRect();
+  return ["fixed", "absolute"].includes(style.position) && rect.top > innerHeight * 0.45;
+}
+
+function countMatches(text, regex) {
+  return (String(text || "").match(regex) || []).length;
+}
+
+function refreshPageLanguageHint() {
+  const declared = document.documentElement?.lang || "";
+  const declaredKind = Core.classifyLanguage("", declared);
+  // A declared non-Chinese language (e.g. lang="en") is authoritative for
+  // Japanese/Korean pages, but English-language sites frequently contain
+  // Chinese text (language-learning platforms, dictionaries, wikis).  Sample
+  // the page body anyway: if it has substantial Chinese text, treat it as
+  // Chinese so annotations are not silently disabled.
+  if (declaredKind === "zh") {
+    pageLanguageHint = "zh";
+    return pageLanguageHint;
+  }
+  const sample = String(document.body?.innerText || document.body?.textContent || "").slice(0, 12000);
+  if (declaredKind === "ja" || countMatches(sample, /[\u3040-\u30ff\u31f0-\u31ff]/gu) >= 4) {
+    pageLanguageHint = "ja";
+    return pageLanguageHint;
+  }
+  if (declaredKind === "ko" || countMatches(sample, /[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/gu) >= 4) {
+    pageLanguageHint = "ko";
+    return pageLanguageHint;
+  }
+  // For declared "other" (e.g. en, fr, vi) or "unknown", check whether the
+  // page body contains Chinese characters.  If it does, annotate it.
+  if (CHINESE_RE.test(sample)) {
+    pageLanguageHint = "zh";
+    return pageLanguageHint;
+  }
+  pageLanguageHint = declaredKind !== "unknown" ? declaredKind : "unknown";
+  return pageLanguageHint;
+}
+
+function languageContextText(node) {
+  const original = String(node?.nodeValue || "").replace(/\s+/g, " ").trim();
+  let best = original;
+  let current = node?.parentElement;
+  for (let depth = 0; current && current !== document.body && depth < 6; depth++, current = current.parentElement) {
+    const candidate = String(siblingContextText(current) || "").replace(/\s+/g, " ").trim().slice(0, 480);
+    if (candidate.length >= best.length) best = candidate;
+    const kind = Core.classifyLanguage(candidate, "");
+    if (kind === "ja" || kind === "ko" || kind === "other") return candidate;
+    if (candidate.length >= 120) break;
+    if (current.matches?.("p, li, td, th, dd, dt, h1, h2, h3, h4, h5, h6, blockquote, figcaption, a, [role='link'], [role='heading']") && candidate.length > original.length) break;
+  }
+  return best.slice(0, 480);
+}
+
+function shouldAnnotateNodeLanguage(node) {
+  if (settings.languageMode === "force") return true;
+  const parent = node?.parentElement;
+  if (!parent) return false;
+  const langElement = parent.closest("[lang]");
+  const declared = langElement?.getAttribute("lang") || "";
+  const declaredKind = Core.classifyLanguage("", declared);
+  if (declaredKind === "zh") return true;
+  if (declaredKind !== "unknown") return false;
+  if (pageLanguageHint !== "unknown" && pageLanguageHint !== "zh") return false;
+  return Core.shouldAnnotateLanguage(languageContextText(node), declared, "auto");
+}
+
 function isSkippableElement(element) {
   if (!element || element.nodeType !== Node.ELEMENT_NODE) return true;
   if (SKIP_TAGS.has(element.nodeName)) return true;
-  return Boolean(element.closest("[data-ca-annotation], [data-ca-stroke-overlay], [contenteditable='true'], ruby"));
+  if (isNativeCaptionElement(element)) return true;
+  return Boolean(element.closest("[data-ca-annotation], [data-ca-overlay-host], [data-ca-stroke-overlay], [contenteditable='true'], ruby"));
 }
 
 function isValidTextNode(node) {
@@ -209,6 +539,7 @@ function isValidTextNode(node) {
     node.nodeType === Node.TEXT_NODE &&
     node.nodeValue &&
     CHINESE_RE.test(node.nodeValue) &&
+    shouldAnnotateNodeLanguage(node) &&
     !isSkippableElement(node.parentElement)
   );
 }
@@ -218,8 +549,10 @@ function textNodeSkipReason(node) {
   if (node.nodeType !== Node.TEXT_NODE) return "not-text";
   if (!node.nodeValue) return "empty";
   if (!CHINESE_RE.test(node.nodeValue)) return "no-chinese";
+  if (!shouldAnnotateNodeLanguage(node)) return `language-${pageLanguageHint}`;
   const parent = node.parentElement;
   if (!parent) return "no-parent";
+  if (isNativeCaptionElement(parent)) return "native-caption";
   const skipElement = parent.closest("[data-ca-annotation], [data-ca-stroke-overlay], [contenteditable='true'], ruby");
   if (skipElement) {
     if (skipElement.matches("[data-ca-annotation]")) return "already-annotated";
@@ -457,6 +790,10 @@ function countVisibleCoverage() {
     rawVisible,
     validRawVisible,
     queued: annotationQueue.length,
+    processing: annotationProcessing,
+    completed: annotationCompletedCount,
+    failed: annotationFailedCount,
+    revision: LAYOUT_REVISION,
     scanQueue: scanQueue.length,
     cacheEntries: annotationCache.size,
     skippedByReason,
@@ -466,30 +803,71 @@ function countVisibleCoverage() {
 
 function enqueueTextNode(node, options = {}) {
   if (!isValidTextNode(node)) return;
-  if (!options.force && queuedTextNodes.has(node)) return;
+  // A forced coverage sweep may retry a node after a failure, but it must not
+  // duplicate work that is already queued or in flight.
+  if (queuedTextNodes.has(node)) return;
   queuedTextNodes.add(node);
-  annotationQueue.push({ node, version: pageVersion });
+  annotationTotalQueued++;
+  const preferredRoot = node.parentElement?.closest?.("main, article, [role='main'], #content, #bodyContent, .mw-body, .mw-parser-output");
+  annotationQueue.push({
+    node,
+    version: pageVersion,
+    priority: preferredRoot ? 0 : 1,
+    sequence: annotationSequence++
+  });
   scheduleAnnotationBatch();
 }
 
 function scheduleAnnotationBatch() {
-  if (annotationScheduled) return;
+  if (annotationScheduled || annotationProcessing) return;
   annotationScheduled = true;
+  publishAnnotationDiagnostics();
   window.setTimeout(processAnnotationBatch, BATCH_PAUSE_MS);
+}
+
+function publishAnnotationDiagnostics() {
+  const root = document.documentElement;
+  if (!root) return;
+  root.dataset.caAnnotationState = annotationProcessing ? "processing" : (annotationQueue.length ? "queued" : "idle");
+  root.dataset.caAnnotationQueue = String(annotationQueue.length);
+  root.dataset.caAnnotationCompleted = String(annotationCompletedCount);
+  root.dataset.caAnnotationFailed = String(annotationFailedCount);
+  root.dataset.caAnnotationTotal = String(annotationTotalQueued);
+
+  // Health status for popup / diagnostics consumers.
+  let health = "ready";
+  if (siteDisabled || !anyEnabled()) {
+    health = "disabled";
+  } else if (annotationFailedCount > 5) {
+    health = "error";
+  } else if (annotationProcessing || annotationQueue.length > 0) {
+    health = "annotating";
+  }
+  root.dataset.caHealth = health;
 }
 
 async function processAnnotationBatch() {
   annotationScheduled = false;
-  if (!anyEnabled()) return;
+  if (annotationProcessing || !anyEnabled()) return;
+  annotationProcessing = true;
+  publishAnnotationDiagnostics();
 
   let nodeCount = 0;
   let charCount = 0;
+  const batch = [];
 
-  while (annotationQueue.length && nodeCount < MAX_BATCH_NODES && charCount < MAX_BATCH_CHARS) {
+  // Keep the reading surface responsive even when navigation and sidebars
+  // contain hundreds of Chinese snippets.
+  annotationQueue.sort((a, b) => a.priority - b.priority || a.sequence - b.sequence);
+
+  while (annotationQueue.length && nodeCount < Math.min(MAX_BATCH_NODES, MAX_CONCURRENT_ANNOTATIONS) && charCount < MAX_BATCH_CHARS) {
     const item = annotationQueue.shift();
     const node = item.node;
 
-    if (item.version !== pageVersion || !isValidTextNode(node)) continue;
+    if (item.version !== pageVersion || !isValidTextNode(node)) {
+      queuedTextNodes.delete(node);
+      continue;
+    }
 
     if (node.nodeValue.length > MAX_TEXT_NODE_CHARS) {
       let splitIndex = MAX_TEXT_NODE_CHARS;
@@ -503,21 +881,30 @@ async function processAnnotationBatch() {
 
     nodeCount++;
     charCount += node.nodeValue.length;
-    
-    try {
-      await annotateNode(node, item.version);
-    } catch (err) {
-      const skipped = (node.nodeValue || "").replace(/\s+/g, " ").trim();
-      console.warn(
-        `Combined Annotator: skipped annotating text (${skipped.length} chars): "${skipped.slice(0, 120)}${skipped.length > 120 ? "…" : ""}"`,
-        err
-      );
-    }
+    batch.push(item);
   }
 
+  await Promise.all(batch.map(async (item) => {
+    const node = item.node;
+    try {
+      await annotateNode(node, item.version);
+      annotationCompletedCount++;
+    } catch (err) {
+      annotationFailedCount++;
+      const skipped = (node.nodeValue || "").replace(/\s+/g, " ").trim();
+      console.warn(
+        `Combined Annotator: skipped annotating text (${skipped.length} chars): "${skipped.slice(0, 120)}${skipped.length > 120 ? "\u2026" : ""}"`,
+        err
+      );
+    } finally {
+      queuedTextNodes.delete(node);
+    }
+  }));
+
+  annotationProcessing = false;
+  publishAnnotationDiagnostics();
   if (annotationQueue.length) scheduleAnnotationBatch();
 }
-
 async function annotateNode(node, version) {
   const text = node.nodeValue;
   const cacheKey = `${settings.showEnglish ? "e" : "-"}${settings.showJyutping ? "j" : "-"}${settings.showPinyin ? "p" : "-"}:${text}`;
@@ -586,10 +973,21 @@ function scheduleVisibleSweep(root) {
 }
 
 function replaceTextNode(node, fragment, version) {
-  if (version !== pageVersion || !node.parentNode) return;
+  // Instead of dropping in-flight annotations when clearAnnotations() bumps
+  // pageVersion, check whether the text node is still a live, unannotated
+  // text node in the DOM.  If it was already replaced (by another annotation
+  // or a page mutation) we skip it; otherwise we apply the fragment.
+  if (!node.isConnected || node.nodeType !== Node.TEXT_NODE) return;
+  if (node.parentElement?.closest?.("[data-ca-annotation]")) return;
   const parent = node.parentNode;
+  const layoutContext = captureLayoutContext(node.parentElement);
   observerPaused = true;
-  parent.replaceChild(fragment.cloneNode(true), node);
+  const clone = fragment.cloneNode(true);
+  const insertedRuns = clone.matches?.(".ca-run")
+    ? [clone, ...Array.from(clone.querySelectorAll(".ca-run"))]
+    : (clone.querySelectorAll ? Array.from(clone.querySelectorAll(".ca-run")) : []);
+  parent.replaceChild(clone, node);
+  for (const run of insertedRuns) registerRunLayout(run, layoutContext);
   window.setTimeout(() => {
     observerPaused = false;
     scheduleVisibleSweep(parent);
@@ -634,12 +1032,18 @@ function buildAnnotationFragment(originalText, response) {
     const pinyin = findMatchingPart(primary, pinyinParts, index);
     const jyutping = findMatchingPart(primary, jyutpingParts, index);
     const cedictEnglish = response?.cedictGlosses?.[primary.base] || "";
-    const englishGloss = chooseEnglishGloss(cedictEnglish, pinyin?.title || primary.title || "");
+    const bundledGloss = chooseEnglishGloss(cedictEnglish, pinyin?.title || primary.title || "");
+    const custom = response?.customOverrides?.[primary.base] || null;
+    const customDefinitions = custom?.definitions || [];
+    const englishGloss = custom ? {
+      short: customDefinitions[0] || (custom.mode === "replace" ? "" : bundledGloss.short),
+      full: custom.mode === "replace" ? customDefinitions.join("; ") : [...customDefinitions, bundledGloss.full].filter(Boolean).join("; ")
+    } : bundledGloss;
     const unit = createAnnotatedUnit(primary.base, {
       english: englishGloss.short,
       fullEnglish: englishGloss.full,
-      jyutping: jyutping?.reading || "",
-      pinyin: pinyin?.reading || "",
+      jyutping: custom?.jyutping || jyutping?.reading || "",
+      pinyin: custom?.pinyin || pinyin?.reading || "",
       hskLevel: response?.hskLevels?.[primary.base] || 0
     });
     run.appendChild(unit);
@@ -1051,7 +1455,86 @@ function appendDictionaryRow(container, label, value) {
   container.appendChild(row);
 }
 
-function toggleDictionaryPopup(unit, baseNode) {
+function restoreAnnotatedTextInClone(clone) {
+  clone.querySelectorAll?.(".ca-unit[data-ca-original]").forEach((unit) => {
+    unit.replaceWith(document.createTextNode(unit.dataset.caOriginal || ""));
+  });
+  clone.querySelectorAll?.(".ca-run[data-ca-original]").forEach((run) => {
+    run.replaceWith(document.createTextNode(run.dataset.caOriginal || run.textContent || ""));
+  });
+  return clone;
+}
+
+function plainTextForElement(element) {
+  if (!element) return "";
+  const clone = element.cloneNode(true);
+  clone.querySelectorAll("[data-ca-stroke-overlay], .ca-dictionary-popup").forEach((node) => node.remove());
+  restoreAnnotatedTextInClone(clone);
+  return String(clone.textContent || "").replace(/\s+/g, " ").trim();
+}
+
+function extractReaderSelection() {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !selection.rangeCount) return "";
+
+  const originalSelection = extractOriginalSelection(selection);
+  if (CHINESE_RE.test(originalSelection)) return originalSelection;
+
+  const units = getSelectedAnnotationUnits(selection);
+  if (units.length) {
+    const chinese = units.map((unit) => unit.dataset.caOriginal || "").join("").trim();
+    if (CHINESE_RE.test(chinese)) return chinese;
+  }
+
+  const holder = document.createElement("div");
+  for (let index = 0; index < selection.rangeCount; index++) {
+    holder.append(selection.getRangeAt(index).cloneContents());
+  }
+  return plainTextForElement(holder);
+}
+
+function extractOriginalSelection(selection) {
+  if (!selection || selection.isCollapsed || !selection.rangeCount) return "";
+  const holder = document.createElement("div");
+  for (let index = 0; index < selection.rangeCount; index++) {
+    holder.append(selection.getRangeAt(index).cloneContents());
+  }
+  return plainTextForElement(holder);
+}
+
+function dictionaryRequestForUnit(unit, characterOffset = 0) {
+  const run = unit.closest(".ca-run");
+  const units = run ? Array.from(run.querySelectorAll(":scope > .ca-unit")) : [unit];
+  let offset = 0;
+  for (const candidate of units) {
+    if (candidate === unit) break;
+    offset += String(candidate.dataset.caOriginal || "").length;
+  }
+  offset += Math.max(0, Math.min(String(unit.dataset.caOriginal || "").length - 1, Number(characterOffset) || 0));
+  const block = unit.closest("p, li, td, th, dd, dt, h1, h2, h3, h4, h5, h6, blockquote, figcaption, article, section, div") || run || unit;
+  const blockText = plainTextForElement(block);
+  const runText = run?.dataset.caOriginal || unit.dataset.caOriginal || "";
+  const blockOffset = blockText.indexOf(runText);
+  const sentence = Core.sentenceAround(blockText, Math.max(0, blockOffset) + offset);
+  return {
+    text: runText,
+    offset,
+    sentence,
+    sourceTitle: document.title,
+    sourceUrl: location.href
+  };
+}
+
+function toggleDictionaryPopup(unit, baseNode, characterOffset = 0) {
+  if (globalThis.CombinedAnnotatorUI?.showDictionary) {
+    closeDictionaryPopup();
+    globalThis.CombinedAnnotatorUI.showDictionary({
+      anchor: baseNode,
+      unit,
+      request: dictionaryRequestForUnit(unit, characterOffset)
+    });
+    return;
+  }
   const wasActive = unit.classList.contains("ca-popup-active");
   closeDictionaryPopup();
   if (wasActive) return;
@@ -1174,10 +1657,23 @@ function installGlobalSpeakerHandlers() {
   document.addEventListener("click", (event) => {
     const baseNode = event.target.closest?.(".ca-base");
     if (baseNode && !event.target.closest(".ca-speak")) {
+      // Annotated text inside a hyperlink must follow the link instead of
+      // opening the dictionary popup.
+      if (baseNode.closest("a[href]")) {
+        closeDictionaryPopup();
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       const unit = baseNode.closest(".ca-unit");
-      if (unit) toggleDictionaryPopup(unit, baseNode);
+      let characterOffset = 0;
+      const caret = document.caretPositionFromPoint?.(event.clientX, event.clientY);
+      if (caret && baseNode.contains(caret.offsetNode)) characterOffset = caret.offset;
+      else {
+        const range = document.caretRangeFromPoint?.(event.clientX, event.clientY);
+        if (range && baseNode.contains(range.startContainer)) characterOffset = range.startOffset;
+      }
+      if (unit) toggleDictionaryPopup(unit, baseNode, characterOffset);
       return;
     }
 
@@ -1279,12 +1775,6 @@ function speakAnnotation(label, value, base, line) {
   if (!payload.text) return;
 
   const now = Date.now();
-  if (lastSpeakRequest.line === line && (now - lastSpeakRequest.time) < 3000) {
-    // If clicked again within 3 seconds, speak much slower
-    payload.rate = Math.max(0.1, payload.rate * 0.5);
-  }
-  lastSpeakRequest.line = line;
-  lastSpeakRequest.time = now;
 
   const speechId = `speech-${now}-${++speechRequestCounter}`;
   payload.id = speechId;
@@ -1298,93 +1788,644 @@ function speakAnnotation(label, value, base, line) {
 
 function speechPayloadForLabel(label, value, base) {
   if (label === "Jyutping") {
-    return { text: base, lang: "yue-HK", rate: 0.82, voiceName: settings.jyutpingVoice };
+    return { text: base, lang: "zh-HK", rate: settings.speechRate, pitch: settings.speechPitch, voiceName: settings.jyutpingVoice, backend: settings.speechBackend };
   }
   if (label === "Pinyin") {
-    return { text: base, lang: "zh-CN", rate: 0.82, voiceName: settings.pinyinVoice };
+    return { text: base, lang: "zh-CN", rate: settings.speechRate, pitch: settings.speechPitch, voiceName: settings.pinyinVoice, backend: settings.speechBackend };
   }
-  return { text: value, lang: "en-US", rate: 0.95, voiceName: settings.englishVoice };
+  return { text: value, lang: "en-US", rate: settings.speechRate, pitch: settings.speechPitch, voiceName: settings.englishVoice, backend: settings.speechBackend };
 }
 
-function speakFromContentScript(payload) {
+function getSpeechVoices(synth) {
+  try {
+    return synth.getVoices() || [];
+  } catch {
+    return [];
+  }
+}
+
+function waitForSpeechVoices(synth, timeoutMs = SPEECH_VOICE_WAIT_MS) {
+  const readyVoices = getSpeechVoices(synth);
+  if (readyVoices.length > 0 || typeof synth.addEventListener !== "function") {
+    return Promise.resolve(readyVoices);
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer = 0;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      synth.removeEventListener?.("voiceschanged", finish);
+      window.clearTimeout(timer);
+      resolve(getSpeechVoices(synth));
+    };
+
+    synth.addEventListener("voiceschanged", finish);
+    timer = window.setTimeout(finish, timeoutMs);
+  });
+}
+
+function waitForSpeechQueueReset() {
+  return new Promise((resolve) => window.setTimeout(resolve, SPEECH_CANCEL_SETTLE_MS));
+}
+
+function isCantoneseLanguage(language) {
+  return Core.isCantoneseLanguage(language);
+}
+
+function isCantoneseVoice(voice) {
+  if (!voice) return false;
+  if (isCantoneseLanguage(voice.lang)) return true;
+  const description = `${voice.name || ""} ${voice.voiceURI || ""}`.toLowerCase();
+  return /cantonese|hong kong|\btracy\b|\bdanny\b/.test(description);
+}
+
+function selectSpeechVoice(voices, language, preferredName) {
+  const normalizedLang = String(language || "").toLowerCase();
+  const normalizedPreferred = String(preferredName || "").toLowerCase();
+  const preferred = normalizedPreferred
+    ? voices.find((voice) => String(voice.name || "").toLowerCase() === normalizedPreferred)
+    : null;
+  const bestVoice = (candidates) => Core.rankSpeechVoices(candidates, normalizedLang)[0] || null;
+
+  // Never pass Cantonese text to a Mandarin, Taiwanese Mandarin, or default
+  // system voice. It produces fast, breathy gibberish while sounding as if a
+  // Cantonese voice was selected successfully.
+  if (isCantoneseLanguage(normalizedLang)) {
+    if (preferred && isCantoneseVoice(preferred)) return preferred;
+    return bestVoice(voices.filter(isCantoneseVoice));
+  }
+
+  if (preferred) return preferred;
+  let voice = bestVoice(voices.filter((candidate) => candidate.lang && candidate.lang.toLowerCase() === normalizedLang));
+  if (voice) return voice;
+
+  const baseLang = normalizedLang.split("-")[0];
+  voice = bestVoice(voices.filter((candidate) => candidate.lang && candidate.lang.toLowerCase().startsWith(baseLang)));
+  if (!voice && (baseLang === "zh" || baseLang === "cmn")) {
+    voice = bestVoice(voices.filter((candidate) => candidate.lang && candidate.lang.toLowerCase().startsWith("zh")));
+  }
+  return voice || bestVoice(voices.filter((candidate) => candidate.default)) || bestVoice(voices);
+}
+
+function showSpeechNotice(message) {
+  const existing = document.getElementById("ca-speech-notice");
+  existing?.remove();
+  const notice = document.createElement("div");
+  notice.id = "ca-speech-notice";
+  notice.className = "ca-speech-notice";
+  notice.setAttribute("role", "status");
+  notice.setAttribute("aria-live", "polite");
+  notice.textContent = message;
+  document.documentElement.append(notice);
+  window.setTimeout(() => notice.remove(), 9000);
+}
+
+function isCanvasEditorHost(hostname = location.hostname) {
+  const host = String(hostname || "").toLowerCase();
+  return host === "docs.google.com"
+    || host === "office.com"
+    || host.endsWith(".office.com")
+    || host === "microsoft365.com"
+    || host.endsWith(".microsoft365.com")
+    || host.endsWith(".officeapps.live.com")
+    || host === "onedrive.live.com"
+    || host.endsWith(".sharepoint.com");
+}
+
+function canvasEditorLabel() {
+  return location.hostname === "docs.google.com" ? "Google Docs/Slides/Sheets" : "Microsoft Office";
+}
+
+function editorCompatibilityDiagnostic(event, detail = {}) {
+  if (!isCanvasEditorHost()) return;
+  console.info("[Combined Annotator][Google/Office compatibility]", {
+    event,
+    editor: canvasEditorLabel(),
+    frame: window === window.top ? "top" : "child",
+    ...detail
+  });
+}
+
+async function runEditorCompatibilityDiagnostics(reason = "manual-console-request") {
+  const selection = window.getSelection();
+  let background = null;
+  let backgroundError = "";
+  try {
+    background = await sendMessage({ type: "get-editor-compatibility-diagnostics" }, 1);
+  } catch (error) {
+    backgroundError = error?.message || String(error);
+  }
+  const report = {
+    reason,
+    editorDetected: isCanvasEditorHost(),
+    editor: isCanvasEditorHost() ? canvasEditorLabel() : "unsupported host",
+    frame: window === window.top ? "top" : "child",
+    contentRuntimeVersion: ext.runtime.getManifest()?.version || "unknown",
+    compatibilityEnabled: Boolean(settings.clipboardEditorSupport),
+    clipboardApiAvailable: typeof navigator.clipboard?.readText === "function",
+    liveDomSelectionAvailable: Boolean(selection && !selection.isCollapsed && selection.rangeCount),
+    liveDomSelectionLength: selection && !selection.isCollapsed ? selection.toString().length : 0,
+    configuredBackend: settings.speechBackend,
+    shortcuts: {
+      cantonese: settings.readAloudCantoneseShortcut,
+      mandarin: settings.readAloudMandarinShortcut,
+      english: settings.readAloudEnglishShortcut
+    },
+    background,
+    backgroundError: backgroundError || undefined,
+    privacy: "Clipboard contents and Azure keys are not read or printed by this diagnostic snapshot."
+  };
+  console.info("[Combined Annotator][Google/Office compatibility] diagnostic-snapshot", report);
+  return report;
+}
+
+function selectionRangeDiagnostic(selection) {
+  if (!selection || selection.isCollapsed || !selection.rangeCount) return null;
+  try {
+    const range = selection.getRangeAt(selection.rangeCount - 1);
+    const rect = range.getBoundingClientRect?.();
+    return {
+      root: range.commonAncestorContainer?.getRootNode?.() === document ? "document" : "other",
+      rect: rect ? {
+        left: Math.round(rect.left),
+        right: Math.round(rect.right),
+        top: Math.round(rect.top),
+        bottom: Math.round(rect.bottom),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height)
+      } : null
+    };
+  } catch (error) {
+    return { error: String(error?.message || error).slice(0, 200) };
+  }
+}
+
+function runSelectionLogoFrameDiagnostics(reason = "manual-console-request") {
+  const selection = window.getSelection();
+  const overlay = globalThis.CombinedAnnotatorUI?.getSelectionToolsDiagnostics?.() || {
+    apiAvailable: Boolean(globalThis.CombinedAnnotatorUI),
+    diagnosticMethodAvailable: false
+  };
+  const report = {
+    reason,
+    diagnosticsRevision: SELECTION_LOGO_DIAGNOSTICS_REVISION,
+    editor: isCanvasEditorHost() ? canvasEditorLabel() : "unsupported host",
+    frame: window === window.top ? "top" : "child",
+    runtimeVersion: ext.runtime.getManifest()?.version || "unknown",
+    documentReadyState: document.readyState,
+    viewport: { width: innerWidth, height: innerHeight },
+    documentVisible: document.visibilityState,
+    compatibilityEnabled: Boolean(settings.clipboardEditorSupport),
+    siteDisabled,
+    uiAvailable: Boolean(globalThis.CombinedAnnotatorUI?.showSelectionTools),
+    selection: {
+      collapsed: selection?.isCollapsed !== false,
+      rangeCount: selection?.rangeCount || 0,
+      textLength: selection && !selection.isCollapsed ? selection.toString().length : 0,
+      detail: selectionRangeDiagnostic(selection)
+    },
+    pointer: {
+      observed: Boolean(lastPointerSelectionAt),
+      ageMs: lastPointerSelectionAt ? Math.max(0, Date.now() - lastPointerSelectionAt) : null,
+      x: Math.round(lastPointerSelectionX),
+      y: Math.round(lastPointerSelectionY)
+    },
+    copySignal: {
+      source: lastEditorCopySignal.source,
+      observed: Boolean(lastEditorCopySignal.observedAt),
+      ageMs: lastEditorCopySignal.observedAt ? Math.max(0, Date.now() - lastEditorCopySignal.observedAt) : null
+    },
+    actionState: {
+      usesClipboard: selectionActionUsesClipboard,
+      hasTrackedText: Boolean(selectionActionText),
+      dismissedForScroll: selectionToolsDismissedForScroll
+    },
+    overlay
+  };
+  console.info("[Combined Annotator][Google/Office compatibility] selection-logo-frame-snapshot", report);
+  return report;
+}
+
+function requestSelectionLogoDiagnosticReport(reason = "manual-console-request") {
+  return sendMessage({ type: "get-editor-selection-logo-diagnostics" }, 0)
+    .then((report) => {
+      console.info("[Combined Annotator][Google/Office compatibility] selection-logo-diagnostic-report", {
+        diagnosticsRevision: SELECTION_LOGO_DIAGNOSTICS_REVISION,
+        reason,
+        ...report
+      });
+      return report;
+    })
+    .catch((error) => {
+      editorCompatibilityDiagnostic("selection-logo-diagnostic-failed", {
+        diagnosticsRevision: SELECTION_LOGO_DIAGNOSTICS_REVISION,
+        error: String(error?.message || error).slice(0, 300)
+      });
+      throw error;
+    });
+}
+
+function logSelectionLogoEvaluation(source, selection = window.getSelection()) {
+  if (!isCanvasEditorHost()) return;
+  const detail = {
+    source,
+    collapsed: selection?.isCollapsed !== false,
+    rangeCount: selection?.rangeCount || 0,
+    selectedLength: selection && !selection.isCollapsed ? selection.toString().length : 0,
+    uiAvailable: Boolean(globalThis.CombinedAnnotatorUI?.showSelectionTools),
+    compatibilityEnabled: Boolean(settings.clipboardEditorSupport),
+    siteDisabled
+  };
+  const key = JSON.stringify(detail);
+  const now = Date.now();
+  if (key === lastSelectionLogoEvaluation.key && now - lastSelectionLogoEvaluation.observedAt < 2000) return;
+  lastSelectionLogoEvaluation = { key, observedAt: now };
+  editorCompatibilityDiagnostic("selection-logo-evaluation", detail);
+}
+
+function selectedActionText(text = "") {
+  const provided = String(text || "").replace(/\s+/g, " ").trim().slice(0, 25000);
+  if (provided) {
+    editorCompatibilityDiagnostic("text-resolved", { source: "browser-context-selection", textLength: provided.length });
+    return provided;
+  }
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !selection.rangeCount) {
+    editorCompatibilityDiagnostic("dom-selection-unavailable", { collapsed: Boolean(selection?.isCollapsed), rangeCount: selection?.rangeCount || 0 });
+    return "";
+  }
+  const selected = String(extractOriginalSelection(selection) || selection.toString() || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 25000);
+  editorCompatibilityDiagnostic("text-resolved", { source: "live-dom-selection", textLength: selected.length });
+  return selected;
+}
+
+async function readCopiedEditorText({ allowUnconfirmedChinese = true, allowUnconfirmedNonChinese = false } = {}) {
+  const editor = canvasEditorLabel();
+  editorCompatibilityDiagnostic("clipboard-read-requested", {
+    compatibilityEnabled: Boolean(settings.clipboardEditorSupport),
+    clipboardApiAvailable: typeof navigator.clipboard?.readText === "function"
+  });
+  if (!settings.clipboardEditorSupport) {
+    editorCompatibilityDiagnostic("clipboard-read-blocked", { reason: "compatibility-disabled" });
+    showSpeechNotice(`${editor} hides its selection from Firefox. Open the extension's Speech settings, enable Google/Office copied-text compatibility, select text, press Ctrl+C, then try again.`);
+    return "";
+  }
+  if (typeof navigator.clipboard?.readText !== "function") {
+    editorCompatibilityDiagnostic("clipboard-read-blocked", { reason: "clipboard-api-unavailable" });
+    showSpeechNotice(`Clipboard reading is unavailable here. Select text in ${editor}, press Ctrl+C, and check the compatibility permission in the extension's Speech settings.`);
+    return "";
+  }
+  let copyState = null;
+  try {
+    copyState = await sendMessage({ type: "get-editor-copy-state" }, 0);
+  } catch (error) {
+    editorCompatibilityDiagnostic("copy-freshness-check-failed", { error: String(error?.message || error).slice(0, 300) });
+  }
+  const copyAgeMs = copyState?.observedAt ? Number(copyState.ageMs) : Number.NaN;
+  const copyConfirmed = Boolean(copyState?.observedAt)
+    && Number.isFinite(copyAgeMs)
+    && copyAgeMs <= EDITOR_COPY_FRESHNESS_MS;
+  if (!copyConfirmed && !allowUnconfirmedChinese) {
+    editorCompatibilityDiagnostic("clipboard-read-blocked", {
+      reason: "no-recent-editor-copy",
+      copyAgeMs: Number.isFinite(copyAgeMs) ? copyAgeMs : null
+    });
+    showSpeechNotice(`Selecting text in ${editor} is not enough. Click the document, select the text, press Ctrl+C, then immediately use the read-aloud shortcut or Shift+right-click command.`);
+    return "";
+  }
+  if (copyConfirmed) {
+    editorCompatibilityDiagnostic("copy-freshness-confirmed", {
+      copyAgeMs,
+      copyFrameId: Number.isInteger(copyState.frameId) ? copyState.frameId : 0,
+      copySource: copyState.source || "copy-event"
+    });
+  } else {
+    // Google editors occasionally consume the copy event before an isolated
+    // extension listener sees it. Continue with a Chinese-only fallback: this
+    // permits the copied hanzi while still rejecting stale console commands or
+    // other non-Chinese clipboard contents.
+    editorCompatibilityDiagnostic("copy-freshness-unconfirmed", {
+      copyAgeMs: Number.isFinite(copyAgeMs) ? copyAgeMs : null,
+      fallback: allowUnconfirmedNonChinese ? "explicit-english-action" : "chinese-only"
+    });
+  }
+  try {
+    const copied = String(await navigator.clipboard.readText()).replace(/\s+/g, " ").trim().slice(0, 25000);
+    if (!copied) {
+      editorCompatibilityDiagnostic("clipboard-read-empty", { textLength: 0 });
+      showSpeechNotice(`Nothing is copied. Select text in ${editor}, press Ctrl+C, then try the command again.`);
+    } else if (!copyConfirmed && !CHINESE_RE.test(copied) && !allowUnconfirmedNonChinese) {
+      editorCompatibilityDiagnostic("clipboard-read-blocked", {
+        reason: "unconfirmed-copy-has-no-chinese",
+        textLength: copied.length
+      });
+      showSpeechNotice(`The extension could not confirm the recent Ctrl+C, and the clipboard contains no Chinese text. Select the Chinese text again, press Ctrl+C, then immediately retry.`);
+      return "";
+    } else {
+      editorCompatibilityDiagnostic("clipboard-read-succeeded", {
+        textLength: copied.length,
+        containsChinese: CHINESE_RE.test(copied),
+        copyConfirmed
+      });
+    }
+    return copied;
+  } catch (error) {
+    console.warn("Combined Annotator: copied-text compatibility could not read the clipboard", error);
+    editorCompatibilityDiagnostic("clipboard-read-failed", { error: String(error?.message || error).slice(0, 300) });
+    showSpeechNotice(`Firefox blocked clipboard access. Re-enable Google/Office copied-text compatibility in the extension's Speech settings, then select text and press Ctrl+C.`);
+    return "";
+  }
+}
+
+async function resolveActionText(text = "", clipboardOptions = {}) {
+  const selected = selectedActionText(text);
+  if (selected) return selected;
+  if (isCanvasEditorHost()) return readCopiedEditorText(clipboardOptions);
+  return "";
+}
+
+async function resolveEnglishSpeechText(text = "") {
+  const source = String(text || "").replace(/\s+/g, " ").trim();
+  if (!source || !CHINESE_RE.test(source)) return source;
+
+  editorCompatibilityDiagnostic("english-gloss-requested", {
+    textLength: source.length,
+    chineseCharacterCount: extractChineseCharacters(source).length
+  });
+
+  try {
+    const response = await sendMessage({
+      type: "annotate-text",
+      text: source,
+      settings: { ...settings, showEnglish: true, showJyutping: true, showPinyin: true }
+    });
+    const fragment = buildAnnotationFragment(source, response);
+    const values = Array.from(fragment.querySelectorAll(".ca-english"))
+      .map((line) => String(line.dataset.caSpeakValue || line.textContent || "").replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    const english = values.join("; ");
+
+    editorCompatibilityDiagnostic("english-gloss-resolved", {
+      definitionCount: values.length,
+      textLength: english.length,
+      containsChinese: CHINESE_RE.test(english)
+    });
+    return english;
+  } catch (error) {
+    console.warn("Combined Annotator: could not resolve English definitions for speech", error);
+    editorCompatibilityDiagnostic("english-gloss-failed", {
+      error: String(error?.message || error).slice(0, 300)
+    });
+    return "";
+  }
+}
+
+function stopAzureSpeech(notify = true) {
+  const current = activeAzureSpeech;
+  if (!current) return;
+  activeAzureSpeech = null;
+  current.audio.pause();
+  current.audio.onplay = null;
+  current.audio.onended = null;
+  current.audio.onerror = null;
+  current.audio.removeAttribute("src");
+  URL.revokeObjectURL(current.url);
+  if (notify) notifySpeechDiagnostic({ id: current.id, state: "canceled", lang: current.lang, backend: "azure" });
+}
+
+function pauseActiveSpeech() {
+  window.speechSynthesis?.pause();
+  if (activeAzureSpeech) {
+    activeAzureSpeech.audio.pause();
+    notifySpeechDiagnostic({ id: activeAzureSpeech.id, state: "paused", lang: activeAzureSpeech.lang, backend: "azure" });
+  }
+}
+
+function resumeActiveSpeech() {
+  window.speechSynthesis?.resume();
+  if (activeAzureSpeech) {
+    const current = activeAzureSpeech;
+    notifySpeechDiagnostic({ id: current.id, state: "resume-requested", lang: current.lang, backend: "azure" });
+    current.audio.play().catch((error) => {
+      const message = `Could not resume Azure speech: ${error?.message || String(error)}`;
+      notifySpeechDiagnostic({ id: current.id, state: "error", stage: "resume", lang: current.lang, backend: "azure", error: message });
+      showSpeechNotice(message);
+    });
+  }
+}
+
+function stopActiveSpeech() {
+  speechStartSequence++;
+  window.speechSynthesis?.cancel();
+  stopAzureSpeech();
+}
+
+function decodeBase64Audio(value) {
+  const binary = atob(String(value || ""));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+async function speakFromAzure(payload, startSequence) {
+  stopAzureSpeech();
+  window.speechSynthesis?.cancel();
+  try {
+    const speechText = Core.classifyLanguage("", payload.lang) === "zh"
+      ? Core.normalizeChineseSpeechText(payload.text)
+      : String(payload.text || "").trim();
+    if (!speechText) {
+      notifySpeechDiagnostic({ id: payload.id, state: "error", stage: "validation", lang: payload.lang, backend: "azure", error: "There is no text to speak." });
+      payload.onError?.("There is no text to speak.");
+      return;
+    }
+    notifySpeechDiagnostic({
+      id: payload.id, state: "loading", stage: "request", lang: payload.lang,
+      backend: "azure", textLength: speechText.length, rate: payload.rate, pitch: payload.pitch
+    });
+    const response = await sendMessage({
+      type: "synthesize-azure-speech",
+      requestId: payload.id,
+      text: speechText,
+      lang: payload.lang,
+      rate: payload.rate,
+      pitch: payload.pitch
+    }, 0);
+    if (startSequence !== speechStartSequence) {
+      notifySpeechDiagnostic({ id: payload.id, state: "canceled", stage: "response-discarded", lang: payload.lang, backend: "azure" });
+      return;
+    }
+
+    notifySpeechDiagnostic({
+      id: payload.id, state: "audio-ready", stage: "decode", lang: response.lang || payload.lang,
+      backend: "azure", selectedVoice: response.voice, durationMs: response.durationMs,
+      audioBytes: response.audioBytes, mimeType: response.mimeType
+    });
+
+    const blob = new Blob([decodeBase64Audio(response.audioBase64)], { type: response.mimeType || "audio/mpeg" });
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    const current = { audio, url, id: payload.id, lang: response.lang || payload.lang };
+    activeAzureSpeech = current;
+    const cleanup = () => {
+      if (activeAzureSpeech === current) activeAzureSpeech = null;
+      URL.revokeObjectURL(url);
+    };
+    audio.onplay = () => {
+      payload.onStart?.();
+      notifySpeechDiagnostic({ id: payload.id, state: "start", stage: "playback", lang: current.lang, backend: "azure", selectedVoice: response.voice, audioBytes: response.audioBytes });
+    };
+    audio.onended = () => {
+      payload.onEnd?.();
+      notifySpeechDiagnostic({ id: payload.id, state: "end", stage: "playback", lang: current.lang, backend: "azure", selectedVoice: response.voice });
+      cleanup();
+    };
+    audio.onerror = () => {
+      const error = "Firefox could not play the audio returned by Azure Speech.";
+      notifySpeechDiagnostic({ id: payload.id, state: "error", stage: "playback", lang: current.lang, backend: "azure", error });
+      showSpeechNotice(error);
+      payload.onError?.(error);
+      cleanup();
+    };
+    await audio.play();
+  } catch (error) {
+    if (startSequence !== speechStartSequence) return;
+    if (activeAzureSpeech?.id === payload.id) stopAzureSpeech(false);
+    const message = error?.message || String(error);
+    notifySpeechDiagnostic({ id: payload.id, state: "error", stage: "request-or-playback", lang: payload.lang, backend: "azure", error: message });
+    showSpeechNotice(message);
+    payload.onError?.(message);
+  }
+}
+
+async function speakFromContentScript(payload) {
+  const startSequence = ++speechStartSequence;
+  if ((payload.backend || settings.speechBackend) === "azure") {
+    return speakFromAzure(payload, startSequence);
+  }
+
   if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
-    console.warn("Combined Annotator: speech synthesis is not available.");
-    notifySpeechDiagnostic({ id: payload.id, state: "error", error: "Web Speech API is not available in the content script." });
+    const error = "Web Speech API is not available in the content script.";
+    console.warn(`Combined Annotator: ${error}`);
+    notifySpeechDiagnostic({ id: payload.id, state: "error", stage: "availability", backend: "browser", error });
+    payload.onError?.(error);
     return;
   }
 
-  const utterance = new SpeechSynthesisUtterance(payload.text);
-  utterance.lang = payload.lang;
-  utterance.rate = payload.rate;
+  const synth = window.speechSynthesis;
+  stopAzureSpeech();
 
-  const voices = window.speechSynthesis.getVoices();
-  const normalizedLang = String(payload.lang || "").toLowerCase();
-  const normalizedPreferred = String(payload.voiceName || "").toLowerCase();
-  let voice = null;
+  try {
+    const voices = await waitForSpeechVoices(synth);
+    if (startSequence !== speechStartSequence) return;
 
-  if (normalizedPreferred) {
-    voice = voices.find((v) => v.name.toLowerCase() === normalizedPreferred);
-  }
+    const isChineseSpeech = Core.classifyLanguage("", payload.lang) === "zh";
+    const speechText = isChineseSpeech
+      ? Core.normalizeChineseSpeechText(payload.text)
+      : String(payload.text || "");
+    if (!speechText.trim()) return;
 
-  if (!voice) {
-    voice = voices.find((v) => v.lang && v.lang.toLowerCase() === normalizedLang);
-  }
-  
-  if (!voice) {
-    const baseLang = normalizedLang.split("-")[0];
-    voice = voices.find((v) => v.lang && v.lang.toLowerCase().startsWith(baseLang));
-    
-    if (!voice && baseLang === "yue") {
-      voice = voices.find((v) => v.lang && (v.lang.toLowerCase() === "zh-hk" || v.lang.toLowerCase() === "zh-mo" || v.lang.toLowerCase() === "zh-tw"));
+    const utterance = new SpeechSynthesisUtterance(speechText);
+    utterance.lang = payload.lang;
+    const requestedRate = Number(payload.rate) || settings.speechRate || 0.9;
+    utterance.rate = Core.speechRateForLanguage(requestedRate, payload.lang);
+    utterance.pitch = Number(payload.pitch) || settings.speechPitch || 1;
+
+    const voice = selectSpeechVoice(voices, payload.lang, payload.voiceName);
+
+    if (isCantoneseLanguage(payload.lang) && !voice) {
+      const error = "No Cantonese voice is installed. Add Chinese (Traditional, Hong Kong SAR) speech voices in Windows, restart Firefox, then reload this page.";
+      console.warn(`Combined Annotator: ${error}`);
+      showSpeechNotice(error);
+      notifySpeechDiagnostic({ id: payload.id, state: "error", stage: "voice-selection", lang: payload.lang, backend: "browser", error });
+      payload.onError?.(error);
+      return;
     }
-    
-    if (!voice && (baseLang === "yue" || baseLang === "zh" || baseLang === "cmn")) {
-      voice = voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("zh"));
+
+    if (voice) {
+      utterance.voice = voice;
     }
-    
-    if (!voice) {
-      voice = voices.find((v) => v.default) || voices[0] || null;
-    }
-  }
 
-  if (voice) {
-    utterance.voice = voice;
-  }
+    // Prevent Firefox from garbage collecting the utterance before it finishes
+    window._activeUtterances = window._activeUtterances || new Set();
+    window._activeUtterances.add(utterance);
 
-  // Prevent Firefox from garbage collecting the utterance before it finishes
-  window._activeUtterances = window._activeUtterances || new Set();
-  window._activeUtterances.add(utterance);
+    const cleanup = () => {
+      window._activeUtterances.delete(utterance);
+    };
 
-  const cleanup = () => {
-    window._activeUtterances.delete(utterance);
-  };
-
-  utterance.onstart = () => notifySpeechDiagnostic({ id: payload.id, state: "start", lang: payload.lang });
-  utterance.onend = () => {
-    notifySpeechDiagnostic({ id: payload.id, state: "end", lang: payload.lang });
-    cleanup();
-  };
-  utterance.oncancel = () => {
-    notifySpeechDiagnostic({ id: payload.id, state: "canceled", lang: payload.lang });
-    cleanup();
-  };
-  utterance.onerror = (event) => {
-    notifySpeechDiagnostic({ id: payload.id, state: "error", lang: payload.lang, error: event.error || "Unknown speech error" });
-    cleanup();
-  };
-
-  // Fallback: Firefox occasionally completely drops the onend event for short texts.
-  // We estimate duration based on text length and rate, and forcefully clear it.
-  const estimatedDurationMs = Math.max(1000, payload.text.length * 300 * (1 / payload.rate));
-  window.setTimeout(() => {
-    if (window._activeUtterances.has(utterance)) {
-      notifySpeechDiagnostic({ id: payload.id, state: "end", lang: payload.lang, fallback: true });
+    utterance.onstart = () => {
+      payload.onStart?.();
+      notifySpeechDiagnostic({ id: payload.id, state: "start", stage: "playback", lang: payload.lang, backend: "browser", selectedVoice: voice?.name, selectedVoiceLang: voice?.lang });
+    };
+    utterance.onboundary = (event) => payload.onBoundary?.({ charIndex: event.charIndex, charLength: event.charLength, name: event.name });
+    utterance.onend = () => {
+      payload.onEnd?.();
+      notifySpeechDiagnostic({ id: payload.id, state: "end", stage: "playback", lang: payload.lang, backend: "browser", selectedVoice: voice?.name });
       cleanup();
-    }
-  }, estimatedDurationMs + 800);
+    };
+    utterance.oncancel = () => {
+      notifySpeechDiagnostic({ id: payload.id, state: "canceled", stage: "playback", lang: payload.lang, backend: "browser", selectedVoice: voice?.name });
+      cleanup();
+    };
+    utterance.onerror = (event) => {
+      const error = event.error || "Unknown speech error";
+      notifySpeechDiagnostic({ id: payload.id, state: "error", stage: "playback", lang: payload.lang, backend: "browser", selectedVoice: voice?.name, error });
+      payload.onError?.(error);
+      cleanup();
+    };
 
-  window.speechSynthesis.cancel();
-  window.speechSynthesis.speak(utterance);
+    // Fallback: Firefox occasionally completely drops the onend event for short texts.
+    // We estimate duration based on text length and rate, and forcefully clear it.
+    const estimatedDurationMs = Math.max(1000, speechText.length * 300 * (1 / utterance.rate));
+    window.setTimeout(() => {
+      if (window._activeUtterances.has(utterance)) {
+        notifySpeechDiagnostic({ id: payload.id, state: "end", stage: "fallback-timer", lang: payload.lang, backend: "browser", selectedVoice: voice?.name, fallback: true });
+        cleanup();
+      }
+    }, estimatedDurationMs + 800);
+
+    const shouldResetQueue = Boolean(synth.speaking || synth.pending || synth.paused);
+    if (shouldResetQueue) {
+      if (synth.paused) synth.resume();
+      synth.cancel();
+      await waitForSpeechQueueReset();
+      if (startSequence !== speechStartSequence) {
+        cleanup();
+        return;
+      }
+    }
+
+    // Diagnostic logging: confirm the exact utterance handed to the engine so
+    // voice/rate/pitch regressions can be verified against the runtime voices.
+    console.log("[Combined Annotator] speak-request", JSON.stringify({
+      textLength: speechText.length,
+      requestedLang: payload.lang,
+      requestedVoice: payload.voiceName || "(automatic)",
+      selectedVoice: voice ? voice.name : null,
+      selectedVoiceLang: voice ? voice.lang : null,
+      requestedRate,
+      rate: utterance.rate,
+      pitch: utterance.pitch,
+      utteranceSequence: speechStartSequence,
+      voiceCount: voices.length,
+      voices: voices.map((v) => ({ name: v.name, lang: v.lang, default: v.default, localService: v.localService }))
+    }));
+
+    notifySpeechDiagnostic({
+      id: payload.id, state: "queued", stage: "request", lang: payload.lang, backend: "browser",
+      selectedVoice: voice?.name, selectedVoiceLang: voice?.lang, textLength: speechText.length,
+      rate: utterance.rate, pitch: utterance.pitch, voiceCount: voices.length
+    });
+    synth.speak(utterance);
+  } catch (error) {
+    notifySpeechDiagnostic({ id: payload.id, state: "error", stage: "request", lang: payload.lang, backend: "browser", error: error?.message || String(error) });
+  }
 }
 
 function isTerminalSpeechState(state) {
@@ -1393,6 +2434,17 @@ function isTerminalSpeechState(state) {
 
 function notifySpeechDiagnostic(detail) {
   lastSpeechDiagnostic = detail || {};
+
+  editorCompatibilityDiagnostic("speech-state", {
+    requestId: String(lastSpeechDiagnostic.id || "").slice(0, 160),
+    state: lastSpeechDiagnostic.state || "unknown",
+    stage: lastSpeechDiagnostic.stage || "",
+    backend: lastSpeechDiagnostic.backend || settings.speechBackend,
+    language: lastSpeechDiagnostic.lang || "",
+    selectedVoice: lastSpeechDiagnostic.selectedVoice || "",
+    textLength: Number(lastSpeechDiagnostic.textLength) || 0,
+    error: lastSpeechDiagnostic.error ? String(lastSpeechDiagnostic.error).slice(0, 300) : ""
+  });
 
   if (lastSpeechDiagnostic.id && isTerminalSpeechState(lastSpeechDiagnostic.state)) {
     markSpeakerFinished(lastSpeechDiagnostic.id);
@@ -1428,22 +2480,8 @@ async function requestSpeechDiagnostics() {
   const id = `diagnostics-${Date.now()}-${++speechRequestCounter}`;
   const available = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
 
-  // Voices may load asynchronously (especially in Chrome). Wait briefly if none are ready yet.
-  let voices = available ? window.speechSynthesis.getVoices() : [];
-  if (available && voices.length === 0) {
-    voices = await new Promise((resolve) => {
-      const synth = window.speechSynthesis;
-      const onVoicesChanged = () => {
-        synth.removeEventListener("voiceschanged", onVoicesChanged);
-        resolve(synth.getVoices());
-      };
-      synth.addEventListener("voiceschanged", onVoicesChanged);
-      window.setTimeout(() => {
-        synth.removeEventListener("voiceschanged", onVoicesChanged);
-        resolve(synth.getVoices());
-      }, 800);
-    });
-  }
+  // Voices may load asynchronously (especially in Chrome).
+  const voices = available ? await waitForSpeechVoices(window.speechSynthesis) : [];
 
   notifySpeechDiagnostic({
     id,
@@ -1469,7 +2507,7 @@ async function runSpeechTest(label) {
   return waitForSpeechDiagnostic(payload.id, 1800);
 }
 
-function clearAnnotations(root = document.body, options = {}) {
+function pauseAnnotationPipeline() {
   pageVersion++;
   annotationQueue = [];
   scanQueue = [];
@@ -1477,9 +2515,23 @@ function clearAnnotations(root = document.body, options = {}) {
   observedElements = new WeakSet();
   pendingVisibleSweeps = new WeakSet();
   viewportObserver.disconnect();
+  publishAnnotationDiagnostics();
   observerPaused = true;
 
-  root.querySelectorAll("[data-ca-annotation='true']").forEach((node) => {
+  // Clear the annotation cache when annotations are removed — stale cached
+  // fragments for text that no longer exists in the DOM just waste memory.
+  annotationCache.clear();
+}
+
+function clearAnnotations(root = document.body, options = {}) {
+  pauseAnnotationPipeline();
+
+  let restoredPageOriginalCount = 0;
+  const nodes = root.querySelectorAll("[data-ca-annotation='true']");
+  nodes.forEach((node) => {
+    if (options.restorePageOriginal && node.dataset.caPageOriginal && node.dataset.caPageOriginal !== node.dataset.caOriginal) {
+      restoredPageOriginalCount++;
+    }
     const restored = options.restorePageOriginal
       ? node.dataset.caPageOriginal || node.dataset.caOriginal || node.textContent || ""
       : node.dataset.caOriginal || node.textContent || "";
@@ -1488,9 +2540,10 @@ function clearAnnotations(root = document.body, options = {}) {
   root.normalize();
 
   window.setTimeout(() => {
-    observerPaused = false;
-    if (anyEnabled()) enqueueScan(document.body);
+    if (options.resumeObserver !== false) observerPaused = false;
+    if (options.reannotate !== false && anyEnabled()) enqueueScan(document.body);
   }, 0);
+  return restoredPageOriginalCount;
 }
 
 function reannotateVisiblePage() {
@@ -1508,15 +2561,33 @@ function handleMutations(mutations) {
   if (observerPaused || !anyEnabled() || settings.hoverOnly) return;
   window.clearTimeout(mutationTimer);
   mutationTimer = window.setTimeout(() => {
+    // Collect unique added subtrees and deduplicate to avoid full-document scans.
+    const roots = new Set();
     for (const mutation of mutations) {
       if (mutation.type === "characterData") {
         enqueueScan(mutation.target.parentElement);
       }
       for (const node of mutation.addedNodes) {
-        if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.TEXT_NODE) {
-          enqueueScan(document.body);
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          roots.add(node);
+        } else if (node.nodeType === Node.TEXT_NODE && node.parentElement) {
+          roots.add(node.parentElement);
         }
       }
+    }
+    // Remove any root that is a descendant of another root in the set.
+    const filtered = [];
+    for (const root of roots) {
+      let ancestor = root.parentElement;
+      let isDescendant = false;
+      while (ancestor) {
+        if (roots.has(ancestor)) { isDescendant = true; break; }
+        ancestor = ancestor.parentElement;
+      }
+      if (!isDescendant) filtered.push(root);
+    }
+    for (const root of filtered) {
+      enqueueScan(root);
     }
   }, 120);
 }
@@ -1552,13 +2623,22 @@ function applyToneColors(settings) {
   document.body.style.setProperty("--ca-jyutping-tone-5", settings.jyutpingTone5Color);
   document.body.style.setProperty("--ca-jyutping-tone-6", settings.jyutpingTone6Color);
   document.body.style.setProperty("--ca-english-color", settings.englishColor);
+  document.body.style.setProperty("--ca-annotation-scale", String(settings.annotationScale / 100));
+  document.body.dataset.caSpacing = settings.annotationSpacing;
+  document.body.dataset.caPrimaryLayer = settings.primaryLayer;
+  document.body.classList.toggle("ca-pronunciation-mode", settings.layoutMode === "pronunciation");
+  document.querySelectorAll(".ca-run").forEach((run) => registerRunLayout(run));
+  globalThis.CombinedAnnotatorUI?.updateSettings?.(settings);
 }
 
 async function refreshFromSettings(nextSettings) {
   const oldSettings = settings;
-  settings = nextSettings || (await sendMessage({ type: "get-settings" }));
+  const loaded = nextSettings || (await sendMessage({ type: "get-settings", hostname: window.location.hostname }));
+  settings = Core.normalizeSettings(loaded?.settings || loaded);
+  if (loaded && typeof loaded.enabled === "boolean") siteDisabled = !loaded.enabled;
   applyToneColors(settings);
   applyInjectedTheme();
+  refreshPageLanguageHint();
 
   if (!oldSettings) {
     reannotateVisiblePage();
@@ -1569,8 +2649,6 @@ async function refreshFromSettings(nextSettings) {
 
   if (settings.hoverOnly) {
     if (hoverChanged) {
-      // Switched into hover-only: drop the full-page annotations; the hover
-      // handler re-adds them per block as the reader points at them.
       clearAnnotations();
       document.querySelectorAll("[data-ca-hover-done]").forEach((el) => delete el.dataset.caHoverDone);
     }
@@ -1586,8 +2664,18 @@ async function refreshFromSettings(nextSettings) {
 }
 ext.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
+    if (message?.type === "runtime-ready") {
+      return { ok: true, ready: true, version: ext.runtime.getManifest()?.version || "unknown" };
+    }
+    if (message?.type === "run-selection-logo-diagnostics") {
+      return runSelectionLogoFrameDiagnostics(message.reason || "background-cross-frame-request");
+    }
     if (message?.type === "settings-updated") {
       await refreshFromSettings(message.settings);
+      editorCompatibilityDiagnostic("settings-updated", {
+        compatibilityEnabled: Boolean(settings.clipboardEditorSupport),
+        backend: settings.speechBackend
+      });
       return { ok: true };
     }
     if (message?.type === "refresh-visible") {
@@ -1600,7 +2688,11 @@ ext.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return { ok: true, detail: countVisibleCoverage() };
     }
     if (message?.type === "context-menu-action") {
-      handleContextMenuAction(message.action, message.selectionText);
+      editorCompatibilityDiagnostic("context-menu-action-received", {
+        action: message.action || "unknown",
+        browserSelectionLength: String(message.selectionText || "").length
+      });
+      await handleContextMenuAction(message.action, message.selectionText);
       return { ok: true };
     }
     if (message?.type === "site-disabled-changed") {
@@ -1608,7 +2700,9 @@ ext.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (siteDisabled) {
         clearAnnotations(document.body, { restorePageOriginal: false });
       } else {
-        settings = await sendMessage({ type: "get-settings" });
+        const effective = await sendMessage({ type: "get-settings", hostname: location.hostname });
+        settings = Core.normalizeSettings(effective?.settings || effective);
+        siteDisabled = effective?.enabled === false;
         applyToneColors(settings);
         if (anyEnabled()) {
           coverageSweepCount = 0;
@@ -1617,6 +2711,10 @@ ext.runtime.onMessage.addListener((message, sender, sendResponse) => {
           scheduleCoverageSweep();
         }
       }
+      return { ok: true };
+    }
+    if (message?.type === "open-reader") {
+      globalThis.CombinedAnnotatorUI?.openReader?.(message.text || extractReaderSelection());
       return { ok: true };
     }
     if (message?.type === "page-conversion-action") {
@@ -1630,9 +2728,59 @@ ext.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type === "speech-diagnostics") {
       return { ok: true, detail: await requestSpeechDiagnostics() };
     }
+    if (message?.type === "run-content-diagnostics") {
+      return runContentDiagnostics();
+    }
     if (message?.type === "speech-test") {
-      if (message.settings) settings = message.settings;
+      if (message.settings) settings = Core.normalizeSettings(message.settings);
       return { ok: true, detail: await runSpeechTest(message.label || "English") };
+    }
+    if (message?.type === "speak-text") {
+      const text = String(message.text || "").trim();
+      if (!text) return { ok: false };
+      speakFromContentScript({
+        id: `popup-${Date.now()}-${++speechRequestCounter}`,
+        text,
+        lang: message.lang || "zh-CN",
+        rate: settings.speechRate,
+        pitch: settings.speechPitch,
+        backend: settings.speechBackend
+      });
+      return { ok: true };
+    }
+    if (message?.type === "custom-dictionary-changed") {
+      annotationCache.clear();
+      reannotateVisiblePage();
+      return { ok: true };
+    }
+    if (message?.type === "get-health") {
+      publishAnnotationDiagnostics();
+      return { ok: true, health: document.documentElement.dataset.caHealth || "ready" };
+    }
+    if (message?.type === "pause-annotations") {
+      pauseMode = "page";
+      return { ok: true };
+    }
+    if (message?.type === "pause-annotations-timer") {
+      pauseMode = "timer";
+      pausedUntil = Date.now() + 10 * 60 * 1000;
+      return { ok: true };
+    }
+    if (message?.type === "pause-annotations-selection") {
+      pauseMode = "selection";
+      return { ok: true };
+    }
+    if (message?.type === "resume-annotations") {
+      pauseMode = null;
+      pausedUntil = 0;
+      annotationStopped = false;
+      reannotateVisiblePage();
+      return { ok: true };
+    }
+    if (message?.type === "stop-annotations") {
+      clearAnnotations();
+      annotationStopped = true;
+      return { ok: true };
     }
     return null;
   })().then(sendResponse);
@@ -1755,6 +2903,48 @@ function buildAnnotationCopyText(units) {
   return lines.join("\n");
 }
 
+function handleEditorCopyObservation(event) {
+  if (observedEditorCopyEvents.has(event)) return;
+  observedEditorCopyEvents.add(event);
+  editorCompatibilityDiagnostic("copy-event-observed", {
+    defaultPreventedBeforeHandler: Boolean(event.defaultPrevented),
+    clipboardDataAvailable: Boolean(event.clipboardData)
+  });
+  recordEditorCopySignal("copy-event");
+  showEditorCopiedSelectionTools("copy-event");
+}
+
+function recordEditorCopySignal(source) {
+  if (!isCanvasEditorHost()) return;
+  const observedAt = Date.now();
+  lastEditorCopySignal = { source, observedAt };
+  sendMessage({ type: "editor-copy-observed", observedAt, source }, 0)
+    .then((result) => editorCompatibilityDiagnostic("copy-event-recorded", {
+      recorded: Boolean(result?.recorded),
+      observedAt,
+      source
+    }))
+    .catch((error) => editorCompatibilityDiagnostic("copy-event-record-failed", {
+      source,
+      error: String(error?.message || error).slice(0, 300)
+    }));
+}
+
+function handleEditorCopyShortcutObservation(event) {
+  if (!isCanvasEditorHost() || event.repeat || event.isComposing || observedEditorCopyEvents.has(event)) return;
+  const key = String(event.key || "").toLowerCase();
+  const isCopyShortcut = !event.altKey && !event.shiftKey
+    && (((event.ctrlKey || event.metaKey) && key === "c") || (event.ctrlKey && key === "insert"));
+  if (!isCopyShortcut) return;
+  observedEditorCopyEvents.add(event);
+  editorCompatibilityDiagnostic("copy-shortcut-observed", {
+    key: key === "insert" ? "Ctrl+Insert" : (event.metaKey ? "Meta+C" : "Ctrl+C"),
+    defaultPreventedBeforeHandler: Boolean(event.defaultPrevented)
+  });
+  recordEditorCopySignal("keyboard-shortcut");
+  showEditorCopiedSelectionTools("keyboard-shortcut");
+}
+
 function handleAnnotationCopy(event) {
   try {
     const selection = window.getSelection();
@@ -1812,9 +3002,19 @@ function exportVocabularyCsv() {
 }
 
 function handleSelectionChange() {
+  const wasDismissedForScroll = selectionToolsDismissedForScroll;
+  selectionToolsDismissedForScroll = false;
+  scheduleSelectionToolsUpdate();
   document.querySelectorAll(".ca-visually-selected").forEach(el => el.classList.remove("ca-visually-selected"));
   
   const selection = window.getSelection();
+  logSelectionLogoEvaluation("selectionchange", selection);
+  selectionToolsDiagnostic("selectionchange", {
+    wasDismissedForScroll,
+    collapsed: selection?.isCollapsed !== false,
+    rangeCount: selection?.rangeCount || 0,
+    selectedLength: selection?.isCollapsed ? 0 : selection?.toString?.().length || 0
+  });
   if (!selection || selection.isCollapsed || !selection.rangeCount || !settings) return;
   
   const format = settings.copyFormat || "smart";
@@ -1836,20 +3036,317 @@ function handleSelectionChange() {
   }
 }
 
+function rememberEditorSelectionPointer(event) {
+  if (!isCanvasEditorHost() || event.composedPath?.().some((node) => node?.id === "combined-annotator-overlay-host")) return;
+  lastPointerSelectionAt = Date.now();
+  lastPointerSelectionX = Number(event.clientX) || 0;
+  lastPointerSelectionY = Number(event.clientY) || 0;
+}
+
+function editorSelectionToolsRect(range = null) {
+  const rects = range ? Array.from(range.getClientRects?.() || []).filter((rect) => rect.width > 0 || rect.height > 0) : [];
+  const rangeRect = rects.at(-1) || range?.getBoundingClientRect?.();
+  if (rangeRect && (rangeRect.width > 0 || rangeRect.height > 0)
+      && rangeRect.bottom >= 0 && rangeRect.top <= innerHeight
+      && rangeRect.right >= 0 && rangeRect.left <= innerWidth) {
+    return {
+      left: rangeRect.left,
+      right: rangeRect.right,
+      top: rangeRect.top,
+      bottom: rangeRect.bottom
+    };
+  }
+
+  const pointerIsRecent = Date.now() - lastPointerSelectionAt < 30000;
+  const x = pointerIsRecent ? lastPointerSelectionX : Math.round(innerWidth / 2);
+  const y = pointerIsRecent ? lastPointerSelectionY : Math.round(innerHeight / 2);
+  const clampedX = Math.max(12, Math.min(innerWidth - 32, x));
+  const clampedY = Math.max(12, Math.min(innerHeight - 32, y));
+  return { left: clampedX, right: clampedX, top: clampedY, bottom: clampedY };
+}
+
+function showEditorCopiedSelectionTools(reason = "canvas-selection") {
+  if (!isCanvasEditorHost()) return;
+  if (siteDisabled || !settings.clipboardEditorSupport) {
+    editorCompatibilityDiagnostic("selection-logo-skipped", {
+      reason: siteDisabled ? "site-disabled" : "compatibility-disabled"
+    });
+    return;
+  }
+  if (!globalThis.CombinedAnnotatorUI?.showSelectionTools) {
+    editorCompatibilityDiagnostic("selection-logo-skipped", { reason: "overlay-api-unavailable" });
+    return;
+  }
+  const selection = window.getSelection();
+  const range = selection && !selection.isCollapsed && selection.rangeCount
+    ? selection.getRangeAt(selection.rangeCount - 1)
+    : null;
+  selectionToolsDismissedForScroll = false;
+  selectionActionRange = null;
+  selectionActionText = "";
+  selectionActionUsesClipboard = true;
+  const anchor = editorSelectionToolsRect(range);
+  globalThis.CombinedAnnotatorUI.showSelectionTools({
+    text: "",
+    clipboardMode: true,
+    rect: anchor
+  });
+  const overlay = globalThis.CombinedAnnotatorUI.getSelectionToolsDiagnostics?.() || null;
+  editorCompatibilityDiagnostic("selection-logo-show-result", {
+    reason,
+    selectionCollapsed: selection?.isCollapsed !== false,
+    selectionRangeCount: selection?.rangeCount || 0,
+    anchor: {
+      left: Math.round(anchor.left),
+      right: Math.round(anchor.right),
+      top: Math.round(anchor.top),
+      bottom: Math.round(anchor.bottom)
+    },
+    overlayCreated: Boolean(overlay?.created),
+    overlayHidden: overlay?.hidden ?? null,
+    overlayConnected: overlay?.connected ?? null,
+    renderedWidth: overlay?.rect?.width ?? null,
+    renderedHeight: overlay?.rect?.height ?? null
+  });
+}
+
+function hideSelectionToolsForPage() {
+  window.clearTimeout(selectionToolsTimer);
+  selectionToolsTimer = 0;
+  selectionActionRange = null;
+  selectionActionText = "";
+  selectionActionUsesClipboard = false;
+  globalThis.CombinedAnnotatorUI?.hideSelectionTools?.();
+}
+
+function refreshSelectionTools() {
+  selectionToolsTimer = 0;
+  if (isCanvasEditorHost()) logSelectionLogoEvaluation("refresh", window.getSelection());
+  if (selectionToolsDismissedForScroll) {
+    hideSelectionToolsForPage();
+    return;
+  }
+  const selection = window.getSelection();
+  if (siteDisabled || !selection || selection.isCollapsed || !selection.rangeCount) {
+    hideSelectionToolsForPage();
+    return;
+  }
+
+  const range = selection.getRangeAt(selection.rangeCount - 1);
+  const root = range.commonAncestorContainer?.getRootNode?.();
+  if (typeof ShadowRoot !== "undefined" && root instanceof ShadowRoot && root.host?.id === "combined-annotator-overlay-host") {
+    hideSelectionToolsForPage();
+    return;
+  }
+
+  if (isCanvasEditorHost()) {
+    showEditorCopiedSelectionTools("canvas-selection");
+    return;
+  }
+
+  const text = (extractOriginalSelection(selection) || selection.toString()).replace(/\s+/g, " ").trim().slice(0, 25000);
+  const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 || rect.height > 0);
+  const rect = rects.at(-1) || range.getBoundingClientRect();
+  if (!text || (!rect.width && !rect.height)) {
+    hideSelectionToolsForPage();
+    return;
+  }
+
+  selectionActionRange = range.cloneRange();
+  selectionActionText = text;
+  selectionActionUsesClipboard = false;
+  globalThis.CombinedAnnotatorUI?.showSelectionTools?.({
+    text,
+    rect: {
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom
+    }
+  });
+}
+
+function scheduleSelectionToolsUpdate() {
+  window.clearTimeout(selectionToolsTimer);
+  selectionToolsTimer = window.setTimeout(refreshSelectionTools, 90);
+}
+
+function selectionToolsDiagnosticsEnabled() {
+  return document.documentElement.dataset.caSelectionDiagnostics === "1";
+}
+
+function selectionToolsDiagnostic(event, details = {}) {
+  if (!selectionToolsDiagnosticsEnabled()) return;
+  console.info("[Combined Annotator][Selection tools]", event, {
+    ...details,
+    trackedSelection: Boolean(selectionActionText || selectionActionUsesClipboard),
+    dismissedForScroll: selectionToolsDismissedForScroll
+  });
+}
+
+function selectionScrollTargetName(target) {
+  if (target === document) return "document";
+  if (target === window) return "window";
+  if (target instanceof Element) {
+    const role = target.getAttribute("role");
+    return `${target.tagName.toLowerCase()}${role ? `[role=${role}]` : ""}`;
+  }
+  return target?.constructor?.name || typeof target;
+}
+
+function diagnoseCapturedSelectionScroll(event) {
+  if (!selectionToolsDiagnosticsEnabled()) return;
+  const selection = window.getSelection();
+  if ((!selection || selection.isCollapsed) && !selectionActionText && !selectionActionUsesClipboard) return;
+  const now = performance.now();
+  if (now - selectionScrollDiagnosticAt < 250) return;
+  selectionScrollDiagnosticAt = now;
+  selectionToolsDiagnostic("captured-scroll", {
+    target: selectionScrollTargetName(event.target),
+    reachesWindowDismissHandler: event.target === document,
+    selectedLength: selection?.isCollapsed ? 0 : selection?.toString?.().length || 0
+  });
+}
+
+function handleCapturedSelectionScroll(event) {
+  diagnoseCapturedSelectionScroll(event);
+  const selection = window.getSelection();
+  if ((!selection || selection.isCollapsed) && !selectionActionText && !selectionActionUsesClipboard) return;
+  dismissSelectionToolsForScroll(event);
+}
+
+function dismissSelectionToolsForScroll(event) {
+  if (selectionToolsDismissedForScroll) return;
+  selectionToolsDiagnostic("scroll-dismiss", {
+    target: selectionScrollTargetName(event?.target)
+  });
+  selectionToolsDismissedForScroll = true;
+  hideSelectionToolsForPage();
+}
+
+function isPeekEvent(event) {
+  if (event.target?.closest?.("input, textarea, select, [contenteditable='true']")) return false;
+  if (settings.peekKey === "Backslash") return event.code === "Backslash";
+  return event.key === settings.peekKey;
+}
+
+function isEditableShortcutTarget(event) {
+  if (event.target?.closest?.("input, textarea, select, [contenteditable='true'], [contenteditable='']")) return true;
+  return event.composedPath?.().some((node) => node?.id === "combined-annotator-overlay-host") || false;
+}
+
+function handleReadAloudShortcut(event) {
+  if (event.repeat || event.isComposing || siteDisabled) return;
+  if (event.defaultPrevented && !isCanvasEditorHost()) return;
+  if (isEditableShortcutTarget(event) && !isCanvasEditorHost()) return;
+  const shortcuts = [
+    [settings.readAloudCantoneseShortcut, "read-aloud-jyutping"],
+    [settings.readAloudMandarinShortcut, "read-aloud-pinyin"],
+    [settings.readAloudEnglishShortcut, "read-aloud-english"]
+  ];
+  const match = shortcuts.find(([shortcut]) => Core.matchesShortcut(event, shortcut));
+  if (!match) return;
+
+  const selection = window.getSelection();
+  const hasLiveSelection = Boolean(selection && !selection.isCollapsed && selection.rangeCount);
+  editorCompatibilityDiagnostic("shortcut-matched", {
+    action: match[1],
+    shortcut: match[0],
+    defaultPreventedBeforeHandler: Boolean(event.defaultPrevented),
+    editableTarget: isEditableShortcutTarget(event),
+    hasLiveSelection
+  });
+  if (!hasLiveSelection && !isCanvasEditorHost()) return;
+  const selectedText = hasLiveSelection
+    ? (extractOriginalSelection(selection) || selection.toString()).replace(/\s+/g, " ").trim().slice(0, 25000)
+    : "";
+  if (hasLiveSelection && !selectedText) return;
+
+  const preservedRange = hasLiveSelection ? selection.getRangeAt(0).cloneRange() : null;
+  event.preventDefault();
+  event.stopPropagation();
+  handleContextMenuAction(match[1], selectedText, preservedRange).catch((error) => {
+    console.warn("Combined Annotator: selected-text shortcut failed", error);
+    editorCompatibilityDiagnostic("shortcut-action-failed", { action: match[1], error: String(error?.message || error).slice(0, 300) });
+  });
+}
+
+function setPeekActive(active) {
+  document.body.classList.toggle("ca-peek-active", Boolean(active));
+  globalThis.CombinedAnnotatorUI?.setPeekActive?.(Boolean(active));
+}
+
 async function init() {
   if (!document.body) return;
-  const storage = await ext.storage.local.get("disabledSites");
-  const disabledSites = storage.disabledSites || [];
-  // Track the disabled state instead of bailing out, so the observers and
-  // listeners exist and the site can be re-enabled live from the popup.
-  siteDisabled = disabledSites.includes(window.location.hostname);
+  document.getElementById("ca-revert-floating-btn")?.remove();
+
+  // Skip hidden or tiny frames (ads, widgets, hidden iframes) to avoid wasting
+  // resources. A parent frame can force annotation by setting the
+  // data-ca-force-annotate attribute on the document element.
+  if (!document.documentElement.dataset.caForceAnnotate) {
+    const style = window.getComputedStyle(document.documentElement);
+    const rect = document.documentElement.getBoundingClientRect();
+    const area = rect.width * rect.height;
+    const isHidden = style.display === "none" || style.visibility === "hidden" || area < 16;
+    const isLikelyAd = area < 10000 && !CHINESE_RE.test(document.body.innerText || "");
+    if (isHidden || isLikelyAd) return;
+  }
+
+  // Chrome MV3 aggressively evicts service workers; sendMessage includes
+  // built-in retry with exponential backoff for "message channel closed" errors.
+  let loaded = null;
+  try {
+    loaded = await sendMessage({ type: "get-settings", hostname: window.location.hostname }, 4);
+  } catch (error) {
+    console.warn("Combined Annotator: init settings load failed, using defaults.", error?.message);
+    loaded = Core.normalizeSettings();
+  }
+
+  settings = Core.normalizeSettings(loaded?.settings || loaded);
+  siteDisabled = loaded?.enabled === false;
+  refreshPageLanguageHint();
+
+  document.addEventListener("ca-google-office-diagnostics", () => {
+    runEditorCompatibilityDiagnostics().catch((error) => {
+      editorCompatibilityDiagnostic("diagnostic-snapshot-failed", { error: String(error?.message || error).slice(0, 300) });
+    });
+    requestSelectionLogoDiagnosticReport("general-diagnostic-event").catch(() => {});
+  });
+  document.addEventListener("ca-google-office-selection-diagnostics", () => {
+    requestSelectionLogoDiagnosticReport("selection-diagnostic-event").catch(() => {});
+  });
+  editorCompatibilityDiagnostic("content-runtime-ready", {
+    version: ext.runtime.getManifest()?.version || "unknown",
+    compatibilityEnabled: Boolean(settings.clipboardEditorSupport),
+    clipboardApiAvailable: typeof navigator.clipboard?.readText === "function",
+    backend: settings.speechBackend,
+    siteDisabled
+  });
+  runEditorCompatibilityDiagnostics("content-runtime-startup").catch((error) => {
+    editorCompatibilityDiagnostic("diagnostic-snapshot-failed", { error: String(error?.message || error).slice(0, 300) });
+  });
 
   installGlobalSpeakerHandlers();
-  document.addEventListener("copy", handleAnnotationCopy);
+  window.addEventListener("pointerup", rememberEditorSelectionPointer, true);
+  window.addEventListener("keydown", handleEditorCopyShortcutObservation, true);
+  window.addEventListener("copy", handleEditorCopyObservation, true);
+  document.addEventListener("copy", handleEditorCopyObservation, true);
+  document.addEventListener("copy", handleAnnotationCopy, true);
   document.addEventListener("selectionchange", handleSelectionChange);
-  settings = await sendMessage({ type: "get-settings" });
+  document.addEventListener("keydown", handleReadAloudShortcut, true);
+  document.addEventListener("keydown", (event) => { if (!event.repeat && isPeekEvent(event)) setPeekActive(true); }, true);
+  document.addEventListener("keyup", (event) => { if (isPeekEvent(event)) setPeekActive(false); }, true);
+  window.addEventListener("blur", () => setPeekActive(false));
   applyToneColors(settings);
   applyInjectedTheme();
+  globalThis.CombinedAnnotatorUI?.init?.({ settings, contentApi: globalThis.CombinedAnnotatorContent });
+  editorCompatibilityDiagnostic("selection-logo-listeners-ready", {
+    selectionChange: true,
+    copyEvent: true,
+    copyShortcut: true,
+    pointerTracking: true,
+    overlayApiAvailable: Boolean(globalThis.CombinedAnnotatorUI?.showSelectionTools)
+  });
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
     if ((settings.uiTheme || "auto") === "auto") applyInjectedTheme();
   });
@@ -1858,9 +3355,13 @@ async function init() {
     subtree: true,
     characterData: true
   });
+  document.addEventListener("scroll", handleCapturedSelectionScroll, { capture: true, passive: true });
   window.addEventListener("scroll", scheduleViewportRefresh, { passive: true });
+  window.addEventListener("scroll", dismissSelectionToolsForScroll, { passive: true });
   window.addEventListener("resize", scheduleViewportRefresh, { passive: true });
+  window.addEventListener("resize", scheduleSelectionToolsUpdate, { passive: true });
   document.addEventListener("mouseover", handleHoverAnnotate, { passive: true });
+  scheduleSelectionToolsUpdate();
   if (anyEnabled() && !settings.hoverOnly) {
     enqueueVisibleContent({ force: true });
     enqueueScan(document.body);
@@ -1913,118 +3414,242 @@ function originalForConvertedBase(base) {
   return restored !== base ? restored : "";
 }
 
-async function handlePageConversion(mode) {
+function annotatedUnitOriginal(unit) {
+  return unit.dataset.caPageOriginal || unit.dataset.caOriginal || unit.querySelector(".ca-base")?.textContent || "";
+}
+
+function updateAnnotatedUnitForConversion(unit, original, nextValue, mode) {
+  if (!unit?.isConnected || typeof nextValue !== "string") return false;
+  const base = unit.querySelector(":scope > .ca-base");
+  if (!base) return false;
+  if (mode === "page-original") {
+    delete unit.dataset.caPageOriginal;
+  } else {
+    unit.dataset.caPageOriginal = original;
+    rememberConvertedOriginal(original, nextValue);
+  }
+  unit.dataset.caOriginal = nextValue;
+  base.textContent = nextValue;
+  unit.hidden = nextValue.length === 0;
+  unit.querySelectorAll(":scope > .ca-lines > .ca-line").forEach((line) => {
+    line.dataset.caSpeakBase = nextValue;
+  });
+  return true;
+}
+
+function annotatedRunOriginal(run) {
+  return run.dataset.caPageOriginal || run.dataset.caOriginal || Array.from(run.childNodes).map((child) => {
+    if (child.nodeType === Node.ELEMENT_NODE && child.matches(".ca-unit")) return annotatedUnitOriginal(child);
+    return child.textContent || "";
+  }).join("");
+}
+
+function updateAnnotatedRunForConversion(run, original, nextValue, mode) {
+  if (!run?.isConnected || !original || !nextValue) return 0;
+  const originalChars = Array.from(original);
+  const targetChars = Array.from(nextValue);
+  let cursor = 0;
+  let changed = 0;
+  const alignedUnits = [];
+  for (const child of run.childNodes) {
+    if (child.nodeType !== Node.ELEMENT_NODE || !child.matches(".ca-unit")) continue;
+    const source = annotatedUnitOriginal(child);
+    const sourceChars = Array.from(source);
+    let sourceStart = -1;
+    for (let candidate = cursor; candidate <= originalChars.length - sourceChars.length; candidate++) {
+      if (originalChars.slice(candidate, candidate + sourceChars.length).join("") === source) {
+        sourceStart = candidate;
+        break;
+      }
+    }
+    if (sourceStart < 0) {
+      console.warn("Combined Annotator: skipped an annotation unit that could not be aligned with its source phrase.");
+      continue;
+    }
+    cursor = sourceStart + sourceChars.length;
+    alignedUnits.push({ child, source, sourceStart, sourceEnd: cursor });
+  }
+
+  const targetBoundaries = Core.alignConvertedBoundaries(original, nextValue);
+  for (const { child, source, sourceStart, sourceEnd } of alignedUnits) {
+    const targetStart = targetBoundaries[sourceStart] ?? 0;
+    const targetEnd = targetBoundaries[sourceEnd] ?? targetChars.length;
+    const targetSegment = targetChars.slice(targetStart, targetEnd).join("");
+    if ((child.dataset.caOriginal !== targetSegment || child.hidden !== (targetSegment.length === 0)) &&
+        updateAnnotatedUnitForConversion(child, source, targetSegment, mode)) changed++;
+  }
+
+  if (mode === "page-original") {
+    delete run.dataset.caPageOriginal;
+  } else {
+    run.dataset.caPageOriginal = original;
+    rememberConvertedOriginal(original, nextValue);
+  }
+  run.dataset.caOriginal = nextValue;
+  return changed;
+}
+
+async function performPageConversion(mode) {
   if (!document.body) return 0;
   if (mode !== "page-traditional" && mode !== "page-simplified" && mode !== "page-original") return 0;
 
   const shouldReannotate = anyEnabled();
-  clearAnnotations(document.body, { restorePageOriginal: mode === "page-original" });
-
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  const nodes = [];
-  let node;
-  while ((node = walker.nextNode())) {
-    if (!node.nodeValue || !CHINESE_RE.test(node.nodeValue)) continue;
-    if (node.parentElement && ["SCRIPT", "STYLE", "NOSCRIPT"].includes(node.parentElement.tagName)) continue;
-    if (node.parentElement?.closest("[data-ca-stroke-overlay]")) continue;
-    if (node.parentElement?.id === "ca-revert-floating-btn") continue;
-    nodes.push(node);
-  }
-
-  // Capture each node's original text before touching the DOM, then resolve the
-  // replacement text (a single background round-trip for the whole page).
-  const originals = nodes.map((textNode) => {
-    const original = originalTextNodes.get(textNode) || textNode.nodeValue;
-    if (!originalTextNodes.has(textNode)) originalTextNodes.set(textNode, original);
-    return original;
-  });
-
-  let nextValues;
-  if (mode === "page-original") {
-    nextValues = originals;
-  } else {
-    nextValues = await convertManyViaBackground(originals, mode === "page-traditional" ? "traditional" : "simplified");
-  }
-
+  pauseAnnotationPipeline();
+  const annotatedRuns = Array.from(document.querySelectorAll(".ca-run[data-ca-annotation='true']"));
+  const annotatedOriginals = annotatedRuns.map(annotatedRunOriginal);
   let changed = 0;
-  observerPaused = true;
-  for (let index = 0; index < nodes.length; index++) {
-    const textNode = nodes[index];
-    if (!textNode.isConnected) continue;
-    const original = originals[index];
-    const nextValue = nextValues[index];
-    if (textNode.nodeValue !== nextValue) {
-      if (mode !== "page-original") rememberConvertedOriginal(original, nextValue);
-      textNode.nodeValue = nextValue;
-      changed++;
+  try {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    let node;
+    while ((node = walker.nextNode())) {
+      if (!node.nodeValue || !CHINESE_RE.test(node.nodeValue)) continue;
+      if (node.parentElement && ["SCRIPT", "STYLE", "NOSCRIPT"].includes(node.parentElement.tagName)) continue;
+      if (node.parentElement?.closest("[data-ca-stroke-overlay]")) continue;
+      if (node.parentElement?.closest("[data-ca-annotation], [data-ca-overlay-host]")) continue;
+      if (node.parentElement && isNativeCaptionElement(node.parentElement)) continue;
+      nodes.push(node);
     }
+
+    // Always convert from the page's restored source text. This makes switching
+    // between Simplified, Traditional, and Original idempotent and prevents
+    // already-annotated text from being converted a second time.
+    const originals = nodes.map((textNode) => {
+      const original = originalTextNodes.get(textNode) || textNode.nodeValue;
+      if (!originalTextNodes.has(textNode)) originalTextNodes.set(textNode, original);
+      return original;
+    });
+
+    let nextValues;
+    let annotatedNextValues;
+    if (mode === "page-original") {
+      nextValues = originals;
+      annotatedNextValues = annotatedOriginals;
+    } else {
+      const conversionMode = mode === "page-traditional" ? "traditional" : "simplified";
+      [nextValues, annotatedNextValues] = await Promise.all([
+        convertManyViaBackground(originals, conversionMode),
+        convertManyViaBackground(annotatedOriginals, conversionMode)
+      ]);
+    }
+
+    for (let index = 0; index < annotatedRuns.length; index++) {
+      changed += updateAnnotatedRunForConversion(
+        annotatedRuns[index],
+        annotatedOriginals[index],
+        annotatedNextValues[index],
+        mode
+      );
+    }
+
+    for (let index = 0; index < nodes.length; index++) {
+      const textNode = nodes[index];
+      if (!textNode.isConnected) continue;
+      const original = originals[index];
+      const nextValue = nextValues[index];
+      if (textNode.nodeValue !== nextValue) {
+        if (mode !== "page-original") rememberConvertedOriginal(original, nextValue);
+        textNode.nodeValue = nextValue;
+        changed++;
+      }
+    }
+
+    return changed;
+  } finally {
+    window.setTimeout(() => {
+      observerPaused = false;
+      if (shouldReannotate) {
+        coverageSweepCount = 0;
+        enqueueVisibleContent({ force: true, bodyWide: true });
+        enqueueScan(document.body);
+        scheduleCoverageSweep();
+      }
+    }, 0);
   }
-
-  window.setTimeout(() => {
-    observerPaused = false;
-    if (shouldReannotate) {
-      coverageSweepCount = 0;
-      enqueueVisibleContent({ force: true, bodyWide: true });
-      enqueueScan(document.body);
-      scheduleCoverageSweep();
-    }
-  }, 0);
-
-  if (mode === "page-original") {
-    document.getElementById("ca-revert-floating-btn")?.remove();
-  } else if (changed > 0) {
-    let revertBtn = document.getElementById("ca-revert-floating-btn");
-    if (!revertBtn) {
-      revertBtn = document.createElement("button");
-      revertBtn.id = "ca-revert-floating-btn";
-      revertBtn.textContent = "Revert Chinese";
-      revertBtn.style.cssText = "position:fixed;bottom:20px;right:20px;z-index:2147483647;background:white;border:1px solid #e2e8f0;padding:8px 12px;border-radius:8px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);cursor:pointer;font-family:system-ui,sans-serif;color:#1a202c;font-weight:600;font-size:14px;";
-      revertBtn.onclick = () => handlePageConversion("page-original");
-      document.body.appendChild(revertBtn);
-    }
-  }
-
-  return changed;
 }
-async function handleContextMenuAction(action, text) {
-  if (action === "convert-traditional" || action === "convert-simplified") {
-    const selection = window.getSelection();
-    if (!selection.rangeCount) return;
 
-    const range = selection.getRangeAt(0);
+function handlePageConversion(mode) {
+  const operation = pageConversionChain.then(
+    () => performPageConversion(mode),
+    () => performPageConversion(mode)
+  );
+  pageConversionChain = operation.catch(() => {});
+  return operation;
+}
+
+async function handleContextMenuAction(action, text, preservedRange = null) {
+  editorCompatibilityDiagnostic("action-started", {
+    action: action || "unknown",
+    providedTextLength: String(text || "").length,
+    preservedDomRange: Boolean(preservedRange),
+    backend: settings.speechBackend
+  });
+  if (action === "open-reader") {
+    const actionText = await resolveActionText(extractReaderSelection() || text || "");
+    if (!actionText && isCanvasEditorHost()) {
+      editorCompatibilityDiagnostic("action-stopped", { action, reason: "no-text" });
+      return;
+    }
+    editorCompatibilityDiagnostic("reader-opening", { textLength: actionText.length });
+    globalThis.CombinedAnnotatorUI?.openReader?.(actionText);
+    return;
+  } else if (action === "convert-traditional" || action === "convert-simplified") {
+    const selection = window.getSelection();
+    if (!preservedRange && !selection.rangeCount) return;
+
+    const range = preservedRange?.cloneRange?.() || selection.getRangeAt(0);
     const converted = await convertViaBackground(text, action === "convert-traditional" ? "traditional" : "simplified");
 
     try {
       range.deleteContents();
       range.insertNode(document.createTextNode(converted));
+      selection?.removeAllRanges?.();
+      hideSelectionToolsForPage();
     } catch (error) {
       console.warn("Combined Annotator: could not replace selection", error);
     }
   } else if (action === "stroke-order-simplified" || action === "stroke-order-traditional") {
-    showStrokeOrderOverlay(text, action === "stroke-order-traditional" ? "traditional" : "simplified");
+    const actionText = await resolveActionText(text);
+    if (!actionText && isCanvasEditorHost()) {
+      editorCompatibilityDiagnostic("action-stopped", { action, reason: "no-text" });
+      return;
+    }
+    editorCompatibilityDiagnostic("stroke-order-opening", {
+      action,
+      textLength: actionText.length,
+      chineseCharacterCount: extractChineseCharacters(actionText).length
+    });
+    showStrokeOrderOverlay(actionText, action === "stroke-order-traditional" ? "traditional" : "simplified");
   } else if (action === "read-aloud-jyutping" || action === "read-aloud-pinyin" || action === "read-aloud-english") {
     let lang = "en-US";
     let voice = settings.englishVoice;
     
     if (action === "read-aloud-jyutping") {
-      lang = "yue-HK";
+      lang = "zh-HK";
       voice = settings.jyutpingVoice;
     } else if (action === "read-aloud-pinyin") {
       lang = "zh-CN";
       voice = settings.pinyinVoice;
     }
     // Jyutping/Pinyin read the actual Chinese characters aloud in the matching
-    // dialect voice (yue-HK / zh-CN) — the TTS engine pronounces the hanzi, so
+    // dialect voice (zh-HK / zh-CN) — the TTS engine pronounces the hanzi, so
     // we must NOT feed it the romanization string ("ceon1 min4"). English reads
     // the gloss text instead.
     let kind = action === "read-aloud-english" ? "English" : "Chinese";
 
     const now = Date.now();
-    let extractedText = text || "";
+    let extractedText = await resolveActionText(text, {
+      allowUnconfirmedNonChinese: action === "read-aloud-english"
+    });
     const selection = window.getSelection();
     if (selection && selection.rangeCount > 0) {
       const units = getSelectedAnnotationUnits(selection);
-      if (units.length > 0) {
+      const originalSelection = extractOriginalSelection(selection);
+      if (kind === "Chinese" && CHINESE_RE.test(originalSelection)) {
+        // Restore the selected annotated DOM so punctuation and spacing reach
+        // the voice as one natural sentence instead of disconnected words.
+        extractedText = originalSelection;
+      } else if (units.length > 0) {
         // Pull only the relevant layer from each selected unit. Never fall back
         // to the raw selection string — it contains every stacked layer
         // (English + Jyutping + Pinyin + Chinese), which reads back repetitively.
@@ -2037,21 +3662,62 @@ async function handleContextMenuAction(action, text) {
         extractedText = kind === "Chinese" ? values.join("") : values.join(" ");
       }
     }
+    if (kind === "English" && CHINESE_RE.test(extractedText)) {
+      extractedText = await resolveEnglishSpeechText(extractedText);
+      if (!extractedText) {
+        editorCompatibilityDiagnostic("action-stopped", {
+          action,
+          reason: "english-gloss-unavailable"
+        });
+        showSpeechNotice("No English definition was found for the copied Chinese text, so it was not sent to the English voice.");
+        return;
+      }
+    }
+    if (kind === "Chinese" && isCanvasEditorHost() && extractedText && !CHINESE_RE.test(extractedText)) {
+      editorCompatibilityDiagnostic("action-stopped", {
+        action,
+        reason: "copied-text-has-no-chinese",
+        textLength: String(extractedText).length
+      });
+      showSpeechNotice(`The copied text contains no Chinese characters, so it was not sent to the ${action === "read-aloud-jyutping" ? "Cantonese" : "Mandarin"} voice. Click the document, select the Chinese text, press Ctrl+C, then try again.`);
+      return;
+    }
     const normalizedText = String(extractedText).replace(/\s+/g, " ").trim();
-    const repeatKey = `${action}:${normalizedText}`;
-    const shouldReadSlower = repeatKey === lastContextSpeakRequest.key && (now - lastContextSpeakRequest.time) < 8000;
-    lastContextSpeakRequest = { key: repeatKey, time: now };
-    
+    // The shared speech boundary removes invisible separators while preserving
+    // meaningful spaces in mixed text such as "Windows 11".
+    const speechText = normalizedText;
+
+    // Alternate speaking speed on repeated reads: the 2nd, 4th, … read of the
+    // same selection within a short window is slowed down for easier listening.
+    const repeatKey = `${action}:${speechText}`;
+    const isRepeat = repeatKey === lastContextSpeak.key && (now - lastContextSpeak.time) < 8000;
+    const shouldReadSlower = isRepeat && lastContextSpeak.slowNext;
+    lastContextSpeak = { key: repeatKey, time: now, slowNext: isRepeat ? !lastContextSpeak.slowNext : true };
+
     const payload = {
       id: `speech-context-${now}`,
-      text: normalizedText,
+      text: speechText,
       lang: lang,
-      rate: shouldReadSlower ? 0.41 : 0.82,
-      voiceName: voice
+      rate: shouldReadSlower ? Math.max(0.4, settings.speechRate * 0.5) : settings.speechRate,
+      pitch: settings.speechPitch,
+      voiceName: voice,
+      backend: settings.speechBackend
     };
 
-    if (!payload.text) return;
+    if (!payload.text) {
+      if (!isCanvasEditorHost()) showSpeechNotice("Select text first, then choose a read-aloud language.");
+      editorCompatibilityDiagnostic("action-stopped", { action, reason: "no-text" });
+      return;
+    }
 
+    editorCompatibilityDiagnostic("speech-dispatched", {
+      action,
+      backend: payload.backend,
+      language: payload.lang,
+      requestedVoice: payload.backend === "azure" ? Core.azureSpeechVoiceForLanguage(payload.lang).voice : (payload.voiceName || "automatic"),
+      textLength: payload.text.length,
+      slowerRepeat: shouldReadSlower
+    });
     speakFromContentScript(payload);
   }
 }
@@ -2075,6 +3741,11 @@ async function handleContextMenuAction(action, text) {
 
 function installStrokeOrderContextTracker() {
   document.addEventListener("contextmenu", (event) => {
+    const selection = window.getSelection();
+    editorCompatibilityDiagnostic("page-contextmenu-observed", {
+      shiftKey: Boolean(event.shiftKey),
+      liveDomSelectionLength: selection && !selection.isCollapsed ? selection.toString().length : 0
+    });
     lastContextChineseCharacter = findChineseCharacterFromPoint(event) || "";
   }, true);
 }
@@ -2248,6 +3919,7 @@ async function showStrokeOrderOverlay(text, mode) {
     chars,
     currentChar: chars[0],
     writer: null,
+    loadSequence: 0,
     speed: initialSpeed,
     isPaused: false,
     isPractice: false,
@@ -2263,18 +3935,21 @@ async function showStrokeOrderOverlay(text, mode) {
 
 async function toggleStrokeOrderMode() {
   if (!strokeOverlayState) return;
-  const nextMode = strokeOverlayState.mode === "traditional" ? "simplified" : "traditional";
-  const chars = await normalizeStrokeCharacters(strokeOverlayState.sourceText, nextMode);
-  if (!chars.length || !strokeOverlayState) return;
+  const state = strokeOverlayState;
+  const currentIndex = Math.max(0, state.chars.indexOf(state.currentChar));
+  const nextMode = state.mode === "traditional" ? "simplified" : "traditional";
+  const chars = await normalizeStrokeCharacters(state.sourceText, nextMode);
+  if (!chars.length || strokeOverlayState !== state) return;
 
-  strokeOverlayState.mode = nextMode;
-  strokeOverlayState.chars = chars;
-  strokeOverlayState.currentChar = chars[0];
-  strokeOverlayState.title.textContent = nextMode === "traditional" ? "Stroke Order: Traditional" : "Stroke Order: Simplified";
-  strokeOverlayState.modeButton.textContent = nextMode === "traditional" ? "Simplified" : "Traditional";
-  strokeOverlayState.modeButton.title = nextMode === "traditional" ? "Switch to Simplified" : "Switch to Traditional";
+  const nextChar = chars[Math.min(currentIndex, chars.length - 1)] || chars[0];
+  state.mode = nextMode;
+  state.chars = chars;
+  state.currentChar = nextChar;
+  state.title.textContent = nextMode === "traditional" ? "Stroke Order: Traditional" : "Stroke Order: Simplified";
+  state.modeButton.textContent = nextMode === "traditional" ? "Simplified" : "Traditional";
+  state.modeButton.title = nextMode === "traditional" ? "Switch to Simplified" : "Switch to Traditional";
   buildStrokeCharacterPicker();
-  animateStrokeCharacter(chars[0]);
+  animateStrokeCharacter(nextChar);
 }
 function createStrokeButton(label, onClick) {
   const button = document.createElement("button");
@@ -2298,13 +3973,24 @@ function buildStrokeCharacterPicker() {
   });
 }
 
-function animateStrokeCharacter(char, options = {}) {
+async function animateStrokeCharacter(char, options = {}) {
   if (!strokeOverlayState || !char) return;
-  const { canvas, status, picker } = strokeOverlayState;
-  const wasPaused = strokeOverlayState.isPaused;
-  strokeOverlayState.currentChar = char;
+  const state = strokeOverlayState;
+  const { canvas, status, picker } = state;
+  const wasPaused = state.isPaused;
+  const loadSequence = ++state.loadSequence;
+  const previousWriter = state.writer;
+  state.writer = null;
+  state.currentChar = char;
+  try {
+    const pauseResult = previousWriter?.pauseAnimation();
+    if (pauseResult && typeof pauseResult.catch === "function") pauseResult.catch(() => {});
+  } catch (_error) {
+    // A failed/unfinished writer must not prevent a different character loading.
+  }
   canvas.textContent = "";
   status.textContent = `Loading ${char}...`;
+  updateStrokePlaybackControls();
 
   picker.querySelectorAll("button").forEach((button) => {
     button.classList.toggle("is-active", button.textContent === char);
@@ -2315,34 +4001,67 @@ function animateStrokeCharacter(char, options = {}) {
     return;
   }
 
+  if (!options.skipAnnotations) updateStrokeAnnotations(char);
+
+  let characterData;
+  try {
+    characterData = await getStrokeCharacterData(char);
+  } catch (error) {
+    if (strokeOverlayState !== state || state.loadSequence !== loadSequence) return;
+    console.warn(`Combined Annotator: stroke data failed for ${char}`, error);
+    status.textContent = strokeLoadErrorMessage(char, error);
+    updateStrokePlaybackControls();
+    return;
+  }
+
+  if (strokeOverlayState !== state || state.loadSequence !== loadSequence || state.currentChar !== char) return;
+
   // Size the character to the canvas box (not the window), so it stays centred
   // and fully inside the panel regardless of viewport width.
   const available = Math.min(canvas.clientWidth, canvas.clientHeight) || 240;
   const size = Math.max(160, Math.min(248, available - 12));
+  const darkTheme = document.documentElement.dataset.caTheme === "dark";
   try {
-    strokeOverlayState.writer = globalThis.HanziWriter.create(canvas, char, {
+    const writer = globalThis.HanziWriter.create(canvas, char, {
       width: size,
       height: size,
       padding: 8,
+      renderer: "canvas",
       showOutline: true,
       showCharacter: false,
-      strokeAnimationSpeed: strokeOverlayState.speed,
+      strokeAnimationSpeed: state.speed,
       delayBetweenStrokes: 180,
       delayBetweenLoops: 650,
       drawingWidth: 32,
-      radicalColor: "#0f766e",
-      strokeColor: "#111827",
-      outlineColor: "#cbd5e1",
-      characterDataLoader: loadStrokeCharacterData
+      drawingColor: darkTheme ? "#f8fafc" : "#111827",
+      radicalColor: darkTheme ? "#2dd4bf" : "#0f766e",
+      strokeColor: darkTheme ? "#f8fafc" : "#111827",
+      outlineColor: darkTheme ? "#475569" : "#cbd5e1",
+      // Data is preloaded above. Supplying it synchronously here prevents a
+      // permanently blank writer when an extension message stalls mid-load.
+      charDataLoader: (_requestedChar, onComplete) => onComplete(characterData)
     });
-    strokeOverlayState.isPaused = wasPaused;
+    state.writer = writer;
+    await writer.getCharacterData();
+    if (strokeOverlayState !== state || state.loadSequence !== loadSequence || state.writer !== writer) return;
+    state.isPaused = wasPaused;
     updateStrokePlaybackControls();
     updateStrokeStatus();
-    updateStrokeAnnotations(char);
-    strokeOverlayState.writer.loopCharacterAnimation();
-    if (strokeOverlayState.isPaused) strokeOverlayState.writer.pauseAnimation();
+    const animation = writer.loopCharacterAnimation();
+    if (animation && typeof animation.catch === "function") {
+      animation.catch((error) => {
+        if (strokeOverlayState !== state || state.writer !== writer) return;
+        console.warn(`Combined Annotator: stroke animation failed for ${char}`, error);
+        status.textContent = `Could not animate ${char}.`;
+      });
+    }
+    if (state.isPaused) writer.pauseAnimation();
   } catch (error) {
-    status.textContent = error.message || String(error);
+    if (strokeOverlayState !== state || state.loadSequence !== loadSequence) return;
+    state.writer = null;
+    console.warn(`Combined Annotator: stroke renderer failed for ${char}`, error);
+    status.textContent = `Could not render ${char}: ${error.message || String(error)}`;
+    updateStrokePlaybackControls();
   }
 }
 
@@ -2409,11 +4128,13 @@ function restartStrokeAnimationAtCurrentSpeed() {
 
 function updateStrokePlaybackControls() {
   if (!strokeOverlayState) return;
+  const hasWriter = Boolean(strokeOverlayState.writer);
   strokeOverlayState.pauseButton.textContent = strokeOverlayState.isPaused ? "Resume" : "Pause";
-  strokeOverlayState.pauseButton.disabled = strokeOverlayState.isPractice;
+  strokeOverlayState.pauseButton.disabled = !hasWriter || strokeOverlayState.isPractice;
   if (strokeOverlayState.practiceButton) {
     strokeOverlayState.practiceButton.textContent = strokeOverlayState.isPractice ? "Stop Practice" : "Practice";
     strokeOverlayState.practiceButton.classList.toggle("is-active", strokeOverlayState.isPractice);
+    strokeOverlayState.practiceButton.disabled = !hasWriter;
   }
   strokeOverlayState.speedSlider.value = String(strokeOverlayState.speed);
   const speedLabel = `${formatStrokeSpeed(strokeOverlayState.speed)}x`;
@@ -2529,27 +4250,137 @@ function speakStrokeAnnotation(label, value, base) {
 }
 
 const strokeDataCache = new Map();
+const strokeDataRequests = new Map();
+let diagnosticStrokeHost = null;
+let diagnosticStrokeWriter = null;
+
+function getStrokeCharacterData(char) {
+  if (strokeDataCache.has(char)) return Promise.resolve(strokeDataCache.get(char));
+  if (strokeDataRequests.has(char)) return strokeDataRequests.get(char);
+
+  const request = new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      callback(value);
+    };
+    const timeoutId = window.setTimeout(() => {
+      finish(reject, new Error(`Stroke data request timed out after ${STROKE_DATA_TIMEOUT_MS / 1000} seconds`));
+    }, STROKE_DATA_TIMEOUT_MS);
+
+    sendMessage({ type: "get-stroke-data", char })
+      .then((response) => {
+        const data = response?.data;
+        if (!data || !Array.isArray(data.strokes) || !data.strokes.length) {
+          throw new Error(`No stroke data for ${char}`);
+        }
+        strokeDataCache.set(char, data);
+        finish(resolve, data);
+      })
+      .catch((error) => finish(reject, error));
+  }).finally(() => {
+    strokeDataRequests.delete(char);
+  });
+
+  strokeDataRequests.set(char, request);
+  return request;
+}
+
+function strokeLoadErrorMessage(char, error) {
+  const detail = String(error?.message || error || "");
+  if (/timed out/i.test(detail)) return `Stroke data for ${char} timed out. Reload the extension and try again.`;
+  if (/No stroke data/i.test(detail)) return `No stroke data found for ${char}.`;
+  return `Could not load stroke data for ${char}. Reload the extension and try again.`;
+}
 
 function loadStrokeCharacterData(char, onComplete, onError) {
-  if (strokeDataCache.has(char)) {
-    onComplete(strokeDataCache.get(char));
-    return;
-  }
-  // Stroke data now lives in a single bundle served from the background (via
-  // IndexedDB), instead of one web-accessible file per character.
-  sendMessage({ type: "get-stroke-data", char })
-    .then((response) => {
-      const data = response?.data;
-      if (!data) throw new Error(`No stroke data for ${char}`);
-      strokeDataCache.set(char, data);
-      onComplete(data);
-    })
+  // Kept as a callback adapter for Hanzi Writer APIs outside the overlay.
+  getStrokeCharacterData(char)
+    .then((data) => onComplete(data))
     .catch((error) => {
-      if (strokeOverlayState?.currentChar === char) {
-        strokeOverlayState.status.textContent = `No stroke data found for ${char}.`;
-      }
       if (onError) onError(error);
     });
+}
+
+async function runContentDiagnostics() {
+  const checks = [];
+  const add = (status, label, detail) => checks.push({ status, label, detail: String(detail || "") });
+
+  publishAnnotationDiagnostics();
+  const root = document.documentElement;
+  const health = root.dataset.caHealth || "unknown";
+  const failed = Number(root.dataset.caAnnotationFailed || 0);
+  const completed = Number(root.dataset.caAnnotationCompleted || 0);
+  add(health === "error" ? "fail" : (health === "disabled" ? "info" : "pass"), "Page annotation runtime", `${health}; ${completed} completed, ${failed} failed`);
+  add(globalThis.CombinedAnnotatorUI ? "pass" : "fail", "Overlay and selection tools", globalThis.CombinedAnnotatorUI ? "Loaded" : "Missing");
+
+  const writerReady = await ensureHanziWriter();
+  add(writerReady ? "pass" : "fail", "Hanzi Writer library", writerReady ? "Loaded in the page" : "Could not load in the page");
+
+  let sampleData = null;
+  try {
+    sampleData = await getStrokeCharacterData("低");
+    add("pass", "Page-to-background stroke request", `低 returned ${sampleData.strokes.length} strokes`);
+  } catch (error) {
+    add("fail", "Page-to-background stroke request", error?.message || String(error));
+  }
+
+  if (writerReady && sampleData) {
+    try {
+      if (!diagnosticStrokeHost?.isConnected) {
+        diagnosticStrokeHost = document.createElement("div");
+        diagnosticStrokeHost.className = "ca-stroke-canvas ca-diagnostic-stroke-host";
+        diagnosticStrokeHost.dataset.caOverlayHost = "true";
+        diagnosticStrokeHost.setAttribute("aria-hidden", "true");
+        diagnosticStrokeHost.style.cssText = "position:fixed;left:-10000px;top:0;width:96px;height:96px;min-height:96px;opacity:0;pointer-events:none;";
+        document.documentElement.appendChild(diagnosticStrokeHost);
+        diagnosticStrokeWriter = null;
+      }
+      if (!diagnosticStrokeWriter) {
+        diagnosticStrokeWriter = globalThis.HanziWriter.create(diagnosticStrokeHost, "低", {
+          width: 96,
+          height: 96,
+          padding: 4,
+          renderer: "canvas",
+          showOutline: true,
+          showCharacter: true,
+          strokeColor: "#111827",
+          outlineColor: "#94a3b8",
+          charDataLoader: (character, onComplete, onError) => {
+            getStrokeCharacterData(character).then(onComplete).catch(onError);
+          }
+        });
+      } else {
+        await diagnosticStrokeWriter.setCharacter("低");
+      }
+      await diagnosticStrokeWriter.getCharacterData();
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const canvas = diagnosticStrokeHost.querySelector("canvas");
+      const context = canvas?.getContext?.("2d");
+      if (!canvas || !context) throw new Error("Canvas renderer was not created");
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      let paintedPixels = 0;
+      for (let index = 3; index < pixels.length; index += 4) {
+        if (pixels[index] > 0) paintedPixels++;
+      }
+      if (!paintedPixels) throw new Error("Canvas was created but no strokes were painted");
+      add("pass", "Stroke canvas rendering", `${paintedPixels} painted pixels detected`);
+    } catch (error) {
+      add("fail", "Stroke canvas rendering", error?.message || String(error));
+    }
+  }
+
+  const speechAvailable = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+  const voices = speechAvailable ? await waitForSpeechVoices(window.speechSynthesis) : [];
+  add(!speechAvailable ? "warn" : (voices.length ? "pass" : "warn"), "Browser speech engine", !speechAvailable ? "Unavailable" : `${voices.length} voices exposed by Firefox`);
+
+  return {
+    ok: !checks.some((check) => check.status === "fail"),
+    health,
+    checks
+  };
 }
 
 function showStrokeOrderNotice(message) {
@@ -2574,7 +4405,15 @@ function showStrokeOrderNotice(message) {
 
 function closeStrokeOrderOverlay() {
   window.clearTimeout(strokeSpeedRestartTimer);
-  if (strokeOverlayState?.writer) strokeOverlayState.writer.pauseAnimation();
+  if (strokeOverlayState) strokeOverlayState.loadSequence += 1;
+  if (strokeOverlayState?.writer) {
+    try {
+      const pauseResult = strokeOverlayState.writer.pauseAnimation();
+      if (pauseResult && typeof pauseResult.catch === "function") pauseResult.catch(() => {});
+    } catch (_error) {
+      // Closing the overlay should remain safe after a renderer failure.
+    }
+  }
   if (strokeOverlayState?.overlay) strokeOverlayState.overlay.remove();
   strokeOverlayState = null;
 }
@@ -2582,3 +4421,66 @@ function closeStrokeOrderOverlay() {
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && strokeOverlayState) closeStrokeOrderOverlay();
 });
+globalThis.CombinedAnnotatorContent = {
+  sendMessage,
+  getSettings: () => ({ ...settings }),
+  updateSettings: refreshFromSettings,
+  plainTextForElement,
+  dictionaryRequestForUnit,
+  async runSelectionAction(action, text) {
+    const usesClipboard = selectionActionUsesClipboard;
+    const preservedRange = usesClipboard ? null : (selectionActionRange?.cloneRange?.() || null);
+    const selectedText = usesClipboard ? "" : (selectionActionText || String(text || ""));
+    selectionActionRange = null;
+    selectionActionText = "";
+    selectionActionUsesClipboard = false;
+    globalThis.CombinedAnnotatorUI?.hideSelectionTools?.();
+    if (usesClipboard && isCanvasEditorHost()) {
+      let copied = false;
+      try {
+        copied = Boolean(document.execCommand?.("copy"));
+      } catch (_error) {
+        copied = false;
+      }
+      editorCompatibilityDiagnostic("selection-logo-copy-attempt", { copied });
+      if (copied) recordEditorCopySignal("selection-tools");
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    }
+    return handleContextMenuAction(action, selectedText, preservedRange);
+  },
+  async annotatePlainText(text, overrideSettings = {}) {
+    const gen = ++annotatePlainTextGeneration;
+    const active = Core.normalizeSettings({ ...settings, ...overrideSettings });
+    const response = await sendMessage({ type: "annotate-text", text: String(text || ""), settings: active });
+    if (gen !== annotatePlainTextGeneration) return null;
+    const previous = settings;
+    settings = active;
+    try {
+      return buildAnnotationFragment(String(text || ""), response);
+    } finally {
+      settings = previous;
+    }
+  },
+  speakText(text, lang = "zh-CN", handlers = {}) {
+    return speakFromContentScript({
+      id: `overlay-${Date.now()}-${++speechRequestCounter}`,
+      text: String(text || ""),
+      lang,
+      rate: handlers.rate || settings.speechRate,
+      pitch: handlers.pitch || settings.speechPitch,
+      voiceName: handlers.voiceName || "",
+      backend: settings.speechBackend,
+      onStart: handlers.onStart,
+      onBoundary: handlers.onBoundary,
+      onEnd: handlers.onEnd,
+      onError: handlers.onError
+    });
+  },
+  pauseSpeech: pauseActiveSpeech,
+  resumeSpeech: resumeActiveSpeech,
+  stopSpeech: stopActiveSpeech,
+  showStrokeOrder: showStrokeOrderOverlay,
+  saveVocabEntry,
+  extractSelection: extractReaderSelection,
+  extractArticle: () => plainTextForElement(document.querySelector("article, main, [role='main']") || document.body).slice(0, 25000)
+};

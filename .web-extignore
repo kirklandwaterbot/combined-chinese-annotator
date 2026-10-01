@@ -1,25 +1,34 @@
-# Dependencies — not part of the shipped extension.
+# Dependencies and source-only data.
 node_modules/
-
-# Source stroke files — shipped bundled as hanzi-writer-data.json instead.
+.claude/
 hanzi-writer-data/
-
-# Original large data files — shipped as split chunks instead.
+data-sources/
 ccedict-glosses.json
 hanzi-writer-data.json
+hanzi-writer-data-*.json
 
-# Dev / test / tooling — not part of the shipped extension.
-new.png
+# Superseded UI and developer fixtures.
+popup.html
+popup.js
+popup.css
 tests/
 test-page.html
 test_engine.js
 test_opencc.js
+new.png
+
+# Build and repository files.
 split-data.js
+build-data.js
+build-lexicon.js
+build-extension.js
+manifest.firefox.json
 package.json
 package-lock.json
 .web-extignore
 .git/
 .gitignore
 web-ext-artifacts/
+source-code.zip
 *.zip
 SOURCES.md

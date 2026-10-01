@@ -1,0 +1,25 @@
+{
+  "dataVersion": "2026-08-04.1",
+  "source": "CC-CEDICT",
+  "format": "v1 ts UTF-8",
+  "license": "CC BY-SA 4.0",
+  "sourceDate": "2026-08-04T08:01:42Z",
+  "sourceUrl": "https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.txt.gz",
+  "sourceGzipSha256": "ec2770cf2002b7b877b16c0273d310d6856d57cabd5d4dc252308a91d536c7d7",
+  "sourceTextSha256": "f3183b6d6b2b976736639002daf756e9e9be2837a44b1d0ea5d80b27a9892e1f",
+  "sourceEntries": 124758,
+  "records": 122195,
+  "entries": 197515,
+  "maxKeyLength": 19,
+  "recordSchema": [
+    "traditional",
+    "simplified",
+    "semicolon-delimited senses"
+  ],
+  "runtimeProjection": {
+    "definitions": "separate senses parsed at the background boundary",
+    "classifiers": "compact [traditional, simplified, Mandarin] arrays",
+    "variants": "traditional and simplified forms are indexed transactionally during local import",
+    "mandarin": "resolved by the bundled offline phonetic engine"
+  }
+}

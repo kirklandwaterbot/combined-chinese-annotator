@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="popup-v2.css">
+  <link rel="stylesheet" href="azure-speech.css">
+  <script src="theme-init.js"></script>
+  <script src="core.js" defer></script>
+  <script src="popup-v2.js" defer></script>
+</head>
+<body>
+<main>
+  <header>
+    <div class="header-identity">
+      <img src="96.png" alt="">
+      <div class="header-copy">
+        <div class="header-title-row"><h1>Chinese Annotator</h1><span id="healthStatus" class="health-dot" title="Checking..."></span></div>
+        <p id="siteLabel">Offline learning tools</p>
+      </div>
+    </div>
+    <button id="closePopup" class="icon" type="button" aria-label="Close">
+      <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false">
+        <path d="M18 6 6 18"></path><path d="m6 6 12 12"></path>
+      </svg>
+    </button>
+  </header>
+
+  <nav role="tablist" aria-label="Extension sections">
+    <button class="tab active" data-tab="display" type="button" role="tab" aria-label="Display" aria-selected="true" tabindex="0">
+      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+      <span class="tab-label">Display</span>
+    </button>
+    <button class="tab" data-tab="words" type="button" role="tab" aria-label="Words" aria-selected="false" tabindex="-1">
+      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10 2v8l3-3 3 3V2"></path><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"></path></svg>
+      <span class="tab-label">Words</span>
+    </button>
+    <button class="tab" data-tab="speech" type="button" role="tab" aria-label="Speech" aria-selected="false" tabindex="-1">
+      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"></path><path d="M16 9a5 5 0 0 1 0 6"></path><path d="M19.364 18.364a9 9 0 0 0 0-12.728"></path></svg>
+      <span class="tab-label">Speech</span>
+    </button>
+    <button class="tab" data-tab="tools" type="button" role="tab" aria-label="Tools" aria-selected="false" tabindex="-1">
+      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect width="7" height="9" x="3" y="3" rx="1"></rect><rect width="7" height="5" x="14" y="3" rx="1"></rect><rect width="7" height="9" x="14" y="12" rx="1"></rect><rect width="7" height="5" x="3" y="16" rx="1"></rect></svg>
+      <span class="tab-label">Tools</span>
+    </button>
+    <button class="tab" data-tab="settings" type="button" role="tab" aria-label="Settings" aria-selected="false" tabindex="-1">
+      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+      <span class="tab-label">Settings</span>
+    </button>
+  </nav>
+
+  <section class="panel active" data-panel="display">
+    <div class="card">
+      <div class="card-title"><h2>Annotation layers</h2><div class="mini-actions"><button id="selectAll">All</button><button id="selectNone">None</button></div></div>
+      <div class="checks three">
+        <label><input id="showJyutping" type="checkbox"> Jyutping</label>
+        <label><input id="showPinyin" type="checkbox"> Pinyin</label>
+        <label><input id="showEnglish" type="checkbox"> English</label>
+      </div>
+      <div class="conversion-control" aria-labelledby="conversionLabel">
+        <span id="conversionLabel">Character conversion</span>
+        <div class="conversion-actions">
+          <button data-convert="page-traditional" title="Convert this page to Traditional Chinese">Traditional</button>
+          <button data-convert="page-simplified" title="Convert this page to Simplified Chinese">Simplified</button>
+          <button data-convert="page-original" title="Restore the page's original characters">Original</button>
+        </div>
+      </div>
+      <div class="grid2">
+        <label>Layout<select id="layoutMode"><option value="adaptive">Adaptive</option><option value="full">Full stack</option><option value="primary">Primary only</option><option value="popup">Popup only</option><option value="pronunciation">Pronunciation only</option></select></label>
+        <label>Primary layer<select id="primaryLayer"><option value="jyutping">Jyutping</option><option value="pinyin">Pinyin</option><option value="english">English</option></select></label>
+        <label>Spacing<select id="annotationSpacing"><option value="compact">Compact</option><option value="normal">Normal</option><option value="relaxed">Relaxed</option></select></label>
+        <label>Peek key<select id="peekKey"><option value="Alt">Alt</option><option value="Control">Ctrl</option><option value="Shift">Shift</option><option value="Backslash">Backslash</option></select></label>
+      </div>
+      <label class="range-row"><span>Annotation size <output id="annotationScaleValue">100%</output></span><input id="annotationScale" type="range" min="75" max="125" step="5"></label>
+      <div class="checks">
+        <label><input id="showHsk" type="checkbox"> HSK level</label>
+        <label><input id="hoverOnly" type="checkbox"> Hover only</label>
+        <label><input id="protectCompactUi" type="checkbox"> Protect compact page UI</label>
+      </div>
+      <p class="hint">Selecting all three layers automatically uses Full stack so Jyutping, Pinyin, and English stay visible together. Choose Adaptive again to collapse layers responsively in narrow content.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><h2>Pause annotations</h2></div>
+      <div class="actions">
+        <button id="pausePage">Pause on this page</button>
+        <button id="pauseTimer">Pause for 10 minutes</button>
+        <button id="pauseSelection">Annotate selection only</button>
+        <button id="resumeAnnotations" class="primary" style="display:none;">Resume</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><h2>This site</h2><span id="profileBadge" class="badge">Global</span></div>
+      <div class="checks">
+        <label><input id="siteEnabled" type="checkbox"> Enabled</label>
+        <label><input id="forceChinese" type="checkbox"> Force Chinese annotation</label>
+      </div>
+      <div class="actions"><button id="saveSiteProfile" class="primary">Save site profile</button><button id="removeSiteProfile">Use global defaults</button><button id="copyProfileBtn">Copy this profile to…</button></div>
+    </div>
+  </section>
+
+  <section class="panel" data-panel="words">
+    <div class="card">
+      <div class="card-title"><h2>Daily review</h2><span id="reviewCount" class="badge">0 due</span></div>
+      <div class="actions"><button id="startReview" class="primary">Start review</button><button id="undoReview">Undo last rating</button></div>
+      <div id="reviewPanel" class="review" hidden>
+        <div class="review-header"><span id="reviewProgress">0 of 0 due</span><label class="auto-speak"><input type="checkbox" id="autoSpeakToggle"> Auto-speak</label></div>
+        <div id="reviewFront" class="review-face" tabindex="0"></div>
+        <div id="reviewBack" class="review-back" hidden></div>
+        <div class="actions"><button id="flipReview">Flip / Space</button><button id="speakReview">Speak</button><button id="editReview">Edit</button><button id="skipReview">Skip</button><button id="suspendReview" class="danger">Suspend</button></div>
+        <div class="ratings" hidden id="ratingButtons">
+          <button data-rating="again"><kbd>1</kbd> Again</button><button data-rating="hard"><kbd>2</kbd> Hard</button><button data-rating="good"><kbd>3</kbd> Good</button><button data-rating="known"><kbd>4</kbd> Known</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><h2>Saved words</h2><span id="wordCount" class="badge">0</span></div>
+      <div class="grid2"><input id="wordSearch" type="search" placeholder="Search words, readings, tags"><select id="wordFilter" aria-label="Word status"><option value="all">All</option><option value="new">New</option><option value="due">Due</option><option value="learning">Learning</option><option value="known">Known</option></select></div>
+      <div id="bulkToolbar" class="bulk-toolbar" style="display:none;">
+        <label><input type="checkbox" id="selectAllWords"> All</label>
+        <button id="bulkTag">Tag selected…</button>
+        <button id="bulkMarkKnown">Mark Known</button>
+        <button id="bulkSuspend">Suspend</button>
+        <button id="bulkDelete" class="danger">Delete selected</button>
+        <button id="bulkExport">Export selected</button>
+        <span id="bulkCount">0 selected</span>
+      </div>
+      <div id="vocabList" class="word-list" aria-live="polite"></div>
+      <div class="actions"><button id="exportAnki">Export TSV</button><button id="importWords">Import CSV / TSV</button><input id="importWordsFile" type="file" accept=".csv,.tsv,.txt" hidden><button id="clearVocab" class="danger">Clear words</button></div>
+      <pre id="importReport" class="report" hidden></pre>
+    </div>
+
+    <details class="card"><summary>Custom dictionary</summary>
+      <input id="customId" type="hidden">
+      <div class="grid2"><label>Headword<input id="customHeadword"></label><label>Behavior<select id="customMode"><option value="merge">Merge with CC-CEDICT</option><option value="replace">Replace built-in entry</option></select></label><label>Simplified<input id="customSimplified"></label><label>Traditional<input id="customTraditional"></label><label>Pinyin<input id="customPinyin"></label><label>Jyutping<input id="customJyutping"></label></div>
+      <label>Definitions (one per line)<textarea id="customDefinitions" rows="3"></textarea></label>
+      <label>Notes<textarea id="customNote" rows="2"></textarea></label>
+      <label>Tags<input id="customTags" placeholder="literary, surname"></label>
+      <div class="actions"><button id="saveCustom" class="primary">Save entry</button><button id="resetCustom">New entry</button></div>
+      <div id="customList" class="word-list"></div>
+    </details>
+  </section>
+
+  <section class="panel" data-panel="speech">
+    <div class="card">
+      <h2>Speech</h2>
+      <label>Speech engine<select id="speechBackend"><option value="browser">Browser / Windows voices</option><option value="azure">Azure Neural voices</option></select></label>
+      <label class="range-row"><span>Rate <output id="speechRateValue">0.9×</output></span><input id="speechRate" type="range" min="0.5" max="1.5" step="0.1"></label>
+      <label class="range-row"><span>Pitch <output id="speechPitchValue">1.0</output></span><input id="speechPitch" type="range" min="0.5" max="1.5" step="0.1"></label>
+      <div id="browserVoiceSettings" class="speech-settings"><label>English voice<select id="englishVoice"></select></label><label>Mandarin voice<select id="pinyinVoice"></select></label><label>Cantonese voice<select id="jyutpingVoice"></select></label></div>
+      <div id="azureSpeechSettings" class="speech-settings" hidden>
+        <p class="hint">Uses Jenny Neural for English, Xiaochen Neural for Mainland Mandarin, and HiuGaai Neural for Cantonese. These standard neural voices can use the Azure F0 allowance. Only text you ask to hear and your key are sent directly to your Azure Speech region.</p>
+        <label>Azure region<input id="azureSpeechRegion" type="text" value="eastus" placeholder="eastus" autocomplete="off" spellcheck="false"></label>
+        <label>Azure Speech key<input id="azureSpeechKey" type="password" placeholder="Paste key to save or replace" autocomplete="new-password"></label>
+        <div class="actions"><button id="saveAzureSpeech" class="primary" type="button">Save &amp; use Azure</button><button id="clearAzureSpeech" type="button">Clear key</button></div>
+        <p id="azureSpeechStatus" class="hint">Azure is not configured.</p>
+      </div>
+      <p id="voiceAvailability" class="hint">Browser mode prefers Microsoft Jenny and Xiaoxiao when those natural voices are available. Azure mode uses the configured neural voices listed above.</p>
+      <div class="actions"><button data-speech="English">Test English</button><button data-speech="Pinyin">Test Mandarin</button><button data-speech="Jyutping">Test Cantonese</button></div>
+      <div class="speech-shortcuts">
+        <div class="card-title"><h2>Selected-text shortcuts</h2><button id="resetSpeechShortcuts" type="button">Reset defaults</button></div>
+        <p class="hint">Select text on a webpage, then press a shortcut. Click a field and press a new combination to change it. Shortcuts require Ctrl, Alt, or Meta.</p>
+        <div class="shortcut-grid">
+          <label>Cantonese<input id="readAloudCantoneseShortcut" class="shortcut-input" type="text" readonly autocomplete="off" spellcheck="false" aria-label="Cantonese read-aloud shortcut"></label>
+          <label>Mandarin<input id="readAloudMandarinShortcut" class="shortcut-input" type="text" readonly autocomplete="off" spellcheck="false" aria-label="Mandarin read-aloud shortcut"></label>
+          <label>English<input id="readAloudEnglishShortcut" class="shortcut-input" type="text" readonly autocomplete="off" spellcheck="false" aria-label="English read-aloud shortcut"></label>
+        </div>
+        <label class="clipboard-compatibility"><input id="clipboardEditorSupport" type="checkbox"> Google/Office copied-text compatibility (on by default)</label>
+        <p class="hint">Google Docs, Slides, Sheets, and Microsoft Office canvas editors hide their selection from Firefox extensions. Select text, press Ctrl+C, and use a shortcut or Shift+right-click. Clipboard text is read only when you invoke an action and is never stored. Disable this switch to stop clipboard reads.</p>
+      </div>
+      <audio id="ttsTestPlayer" controls hidden aria-label="TTS test audio"></audio>
+      <details class="tts-diagnostics">
+        <summary>TTS diagnostic log</summary>
+        <p class="hint">Keeps the latest 200 events. Spoken text, page addresses, Azure keys, SSML, and audio are never recorded.</p>
+        <div class="actions"><button id="refreshTtsLog" type="button">Refresh</button><button id="copyTtsLog" type="button">Copy log</button><button id="clearTtsLog" type="button">Clear</button></div>
+        <pre id="ttsDiagnosticOutput" class="report" aria-live="polite">Open this section or press Refresh to load the log.</pre>
+      </details>
+    </div>
+  </section>
+
+  <section class="panel" data-panel="tools">
+    <div class="card"><h2>Reader</h2><p class="hint">Uses selected Chinese text, or the main article when nothing is selected. Closing returns to your original focus and scroll position.</p><button id="openReader" class="primary wide">Open current page in Reader</button></div>
+
+    <div class="card">
+      <h2>Annotation progress</h2>
+      <div id="annotationProgress">
+        <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+        <span id="progressText">0 of 0 text nodes annotated</span>
+        <div class="actions"><button id="stopAnnotationBtn">Stop</button><button id="resumeAnnotationBtn" style="display:none;">Resume</button></div>
+      </div>
+    </div>
+    <div class="card"><h2>Page tools</h2><div class="actions"><button id="exportPage">Export page CSV</button><button id="refreshPage">Re-annotate visible</button><button id="inspectCoverage">Inspect coverage</button></div><pre id="coverageOutput" class="report" hidden></pre></div>
+  </section>
+
+  <section class="panel" data-panel="settings">
+    <div class="card"><h2>Appearance and behavior</h2><div class="grid2"><label>Theme<select id="uiTheme"><option value="auto">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label><label>Copy format<select id="copyFormat"><option value="smart">Smart</option><option value="horizontal">Horizontal</option><option value="all-top-bottom">All layers top to bottom</option><option value="all-bottom-top">All layers bottom to top</option><option value="per-char-top-bottom">Per character top to bottom</option><option value="per-char-bottom-top">Per character bottom to top</option></select></label></div><label><input id="saveSourceUrl" type="checkbox"> Include source URLs when saving new contexts</label></div>
+    <div class="card diagnostic-card">
+      <div class="card-title"><h2>Extension diagnostics</h2><span id="diagnosticSummary" class="badge" data-status="idle">Not run</span></div>
+      <p class="hint">Checks the background process, settings storage, packaged stroke files, page connection, stroke rendering, and speech availability. No page text, keys, or addresses are recorded.</p>
+      <div class="actions"><button id="runDiagnostics" class="primary" type="button">Run diagnostics</button><button id="copyDiagnostics" type="button">Copy report</button></div>
+      <pre id="diagnosticOutput" class="report diagnostic-output" aria-live="polite">Press Run diagnostics to check the extension.</pre>
+    </div>
+    <details class="card"><summary>Tone colors</summary><div class="checks"><label><input id="enableEnglishColoring" type="checkbox"> English color</label><label><input id="enablePinyinToneColoring" type="checkbox"> Pinyin tones</label><label><input id="enableJyutpingToneColoring" type="checkbox"> Jyutping tones</label></div><div id="colorGrid" class="color-grid"></div></details>
+    <div class="card">
+      <h2>Auto-Backups</h2>
+      <div id="autoBackups">
+        <div id="backupList">Loading…</div>
+        <button id="refreshBackups">Refresh</button>
+      </div>
+    </div>
+    <div class="card"><h2>Complete local backup</h2><p class="hint">Includes settings, site profiles, words, contexts, review history, and custom entries. Rebuildable annotation caches are excluded.</p><div class="actions"><button id="exportBackup">Export backup</button><button id="importBackup">Import backup</button><input id="importBackupFile" type="file" accept=".json" hidden></div><label class="danger-check"><input id="replaceBackup" type="checkbox"> Replace existing user data (merge is the default)</label></div>
+  </section>
+
+  <!-- Vocab editor modal -->
+  <div id="vocabEditor" class="modal" style="display:none;">
+    <div class="modal-content">
+      <h3>Edit Word</h3>
+      <input type="text" id="editHeadword" readonly disabled>
+      <label>Pinyin: <input type="text" id="editPinyin"></label>
+      <label>Jyutping: <input type="text" id="editJyutping"></label>
+      <label>Definitions: <input type="text" id="editDefinitions" placeholder="pipe|separated"></label>
+      <label>Note: <input type="text" id="editNote"></label>
+      <label>Tags: <input type="text" id="editTags" placeholder="comma, separated"></label>
+      <div class="modal-actions">
+        <button id="saveVocabEdit" class="primary">Save</button>
+        <button id="cancelVocabEdit">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <p id="status" role="status" aria-live="polite"></p>
+</main>
+</body>
+</html>

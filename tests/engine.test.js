@@ -46,6 +46,7 @@ function check(name, condition) {
 // 1. Converter turns Traditional into Simplified.
 check("converter traditional->simplified", converter.toSimplified("白日依山盡") === "白日依山尽");
 check("converter simplified->traditional", converter.toTraditional("学中文").length === 3);
+check("converter keeps 怎么 phrase context", converter.toTraditional("怎么") === "怎麼" && converter.toSimplified("怎麼") === "怎么" && converter.toSimplified("怎么") === "怎么");
 
 // 2. Simplified and Traditional lines both annotate to ruby.
 check("simplified line has ruby", /<ruby/i.test(annotate("春眠不觉晓，处处闻啼鸟。")));

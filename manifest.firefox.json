@@ -1,0 +1,103 @@
+{
+    "manifest_version": 3,
+    "name": "Combined Chinese Annotator",
+    "version": "0.2.4",
+    "description": "Toggle Jyutping, Pinyin, and offline English gloss annotations on Chinese text.",
+    "icons": {
+        "32": "32.png",
+        "48": "48.png",
+        "96": "96.png",
+        "128": "128.png"
+    },
+    "permissions": [
+        "storage",
+        "contextMenus",
+        "scripting",
+        "clipboardRead"
+    ],
+    "host_permissions": [
+        "<all_urls>"
+    ],
+    "background": {
+        "scripts": [
+            "core.js",
+            "stroke-codec-v2.js",
+            "user-store.js",
+            "opencc.js",
+            "converter.js",
+            "pinyin-web-engine.js",
+            "background.js"
+        ]
+    },
+    "action": {
+        "default_title": "Chinese Annotator",
+        "default_popup": "popup-v2.html",
+        "default_icon": {
+            "32": "32.png",
+            "48": "48.png",
+            "96": "96.png"
+        }
+    },
+    "web_accessible_resources": [
+        {
+            "resources": ["pinjyut_logo.png"],
+            "matches": ["<all_urls>"]
+        }
+    ],
+    "content_scripts": [
+        {
+            "matches": [
+                "<all_urls>"
+            ],
+            "js": [
+                "core.js",
+                "content.js",
+                "overlay.js"
+            ],
+            "css": [
+                "annotation.css"
+            ],
+            "run_at": "document_idle",
+            "all_frames": true
+        }
+    ],
+    "commands": {
+        "toggle-jyutping": {
+            "suggested_key": {
+                "default": "Alt+Shift+J",
+                "mac": "Alt+Shift+J"
+            },
+            "description": "Toggle Jyutping Annotations"
+        },
+        "toggle-pinyin": {
+            "suggested_key": {
+                "default": "Alt+Shift+P",
+                "mac": "Alt+Shift+P"
+            },
+            "description": "Toggle Pinyin Annotations"
+        },
+        "toggle-english": {
+            "suggested_key": {
+                "default": "Alt+Shift+E",
+                "mac": "Alt+Shift+E"
+            },
+            "description": "Toggle English Annotations"
+        }
+    },
+    "browser_specific_settings": {
+        "gecko": {
+            "id": "{83ed8816-aa14-4222-8fb9-7ee58894b3f3}",
+            "strict_min_version": "140.0",
+            "data_collection_permissions": {
+                "required": ["none"],
+                "optional": [
+                    "authenticationInfo",
+                    "websiteContent"
+                ]
+            }
+        },
+        "gecko_android": {
+            "strict_min_version": "142.0"
+        }
+    }
+}

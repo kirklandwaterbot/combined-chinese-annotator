@@ -1,0 +1,18 @@
+<!doctype html><meta charset="utf-8"><title>Adaptive annotation fixture</title>
+<style>body{font:18px/1.7 system-ui;display:flex;flex-wrap:wrap;align-items:flex-start;gap:20px}.case{box-sizing:border-box;flex:0 0 auto;border:1px solid #bbb;padding:10px}.w280{width:280px}.w430{width:430px}.w800{width:800px}.video-card{box-sizing:border-box;width:274px;padding:8px;background:#111;color:#fff}.video-title{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.line-clamp{box-sizing:border-box;width:430px;display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2}</style>
+<div class="case w280" lang="zh"><b>280px sidebar</b><p>今天我學習中文，也想保存這個句子的上下文。</p></div>
+<div class="case w430" lang="zh"><b>430px panel</b><p>香港中文大學提供很多學習資料。</p></div>
+<div class="case w800" lang="zh"><b>800px article</b><p>閱讀完整文章時可以顯示粵拼、拼音和英文。</p></div>
+<div class="video-card" data-testid="video-card">
+  <div class="video-title" data-testid="segmented-japanese-title"><span>&#12304;&#30142;&#36208;</span><span>&#12450;&#12524;&#12531;&#12472;&#12305;</span><span>&#20316;&#26989;&#29992;BGM</span></div>
+  <div>HIGASHIKAZE · 929K views</div>
+  <div class="video-title" lang="zh-Hant" data-testid="compact-chinese-title">今天我們學習中文並保存這個句子</div>
+</div>
+<p class="line-clamp" lang="zh-Hant" data-testid="clamped-chinese">這是一段應該保持兩行限制的中文標題，不應該因為拼音、粵拼或英文註解而突然變得非常高。</p>
+<section lang="ja"><h2>Japanese must be skipped</h2><p>今日は中国語の記事を読みます。</p><p lang="zh-Hant">這個巢狀中文段落仍然要標註。</p></section>
+<section lang="ko"><h2>Korean must be skipped</h2><p>오늘은 中國語 문장을 읽습니다.</p></section>
+<section lang="en"><h2>English must be skipped</h2><p>Incidental &#20013;&#25991; terms do not make this a Chinese block.</p><p lang="yue-Hant-HK">&#36889;&#20491;&#24034;&#29376;&#31825;&#35486;&#27573;&#33853;&#20173;&#28982;&#35201;&#27161;&#35387;&#12290;</p></section>
+<section lang="vi"><h2>Vietnamese must be skipped</h2><p>Tu vung Han Viet va &#28450;&#23383; khong bien ca doan thanh tieng Trung.</p></section>
+<section lang="fr"><h2>French must be skipped</h2><p>Un terme &#20013;&#25991; isole ne change pas la langue du bloc.</p></section>
+<section lang="ru"><h2>Russian must be skipped</h2><p>Slovo &#20013;&#25991; ne delaet ves blok kitayskim.</p></section>
+<section lang="ar"><h2>Arabic must be skipped</h2><p>An incidental &#20013;&#25991; term remains outside annotation.</p></section>

@@ -1,0 +1,8 @@
+{
+  "version": 3,
+  "source": "hanzi-writer-data.json",
+  "sourceSha256": "ee4a5f07cb959819c3457511fed69748bf50ab3c9dfb61037f074746376fe604",
+  "characters": 9574,
+  "shards": 64,
+  "encoding": "Binary shards with SVG command opcodes and ZigZag delta-varint coordinates at millith-unit precision (maximum 0.0005-unit error)"
+}

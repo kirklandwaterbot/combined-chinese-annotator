@@ -1,31 +1,54 @@
-# Source Code Disclosure (for addons.mozilla.org review)
+# Source Code and Generated Data Disclosure
 
-addons.mozilla.org requires human-readable source (or upstream references +
-build steps) for any minified, concatenated, or machine-generated code. This
-extension's own code (`background.js`, `content.js`, `popup.js`, `converter.js`,
-`annotation.css`, `popup.css`, `popup.html`, `manifest.json`) is hand-written and
-already human-readable — no build step is applied to it.
+This document is intended for addons.mozilla.org source review. First-party extension code is plain, readable JavaScript, HTML, and CSS. No bundler, transpiler, obfuscator, or minifier is applied to first-party code.
 
-The following bundled files are **unmodified third-party releases**; their
-readable source lives upstream:
+## Reproducible build
 
-| Bundled file | Upstream project | How to obtain the readable source |
-|---|---|---|
-| `opencc.js` | opencc-js | https://github.com/nk2028/opencc-js — released build; source + build (`npm run build`) in the repo |
-| `converter.js` | (first-party wrapper) | Already human-readable in this repo |
-| `hanzi-writer.min.js` | hanzi-writer | https://github.com/chanind/hanzi-writer — `dist/hanzi-writer.js` (unminified) and build in the repo |
-| `pinyin-web-engine.js` | Annotator Generator (annogen) output | https://ssb22.user.srcf.net/adjuster/annogen.html — generator source and instructions |
+Use Node.js 22.14 or newer and npm 10.x:
 
-## Generated data files (not code)
-These are data, not executable source; they are consumed as-is:
+```bash
+npm install
+npm run build:data
+npm test
+npm run lint
+npm run build
+```
 
-- `annotate-dat.txt` — phonetic index consumed by `pinyin-web-engine.js`.
-- `ccedict-glosses.json` — pre-processed CC-CEDICT lookup table.
-- `hsk-data.json` — HSK 3.0 word→level lookup table.
-- `hanzi-writer-data.json` — the ~9,574 per-character stroke files from the
-  `hanzi-writer-data` package, concatenated into one `{ "字": {...} }` map. To
-  reproduce: take the `hanzi-writer-data/` directory (one JSON per character) and
-  build `{ filename-without-.json : file-contents }`.
+`manifest.json` is the Chrome Manifest V3 source and uses `background.service_worker`. `manifest.firefox.json` is the Firefox 140+ source and uses `background.scripts`; `build-extension.js` stages it as `web-ext-artifacts/firefox-unpacked/manifest.json` and builds separate Chrome and Firefox ZIPs.
 
-> This file is excluded from the packaged extension (see `.web-extignore`); it is
-> for reviewers and is uploaded as the "source code" attachment during AMO review.
+`build-lexicon.js` reads the pinned CC-CEDICT gzip in `data-sources/`, verifies/parses its declared entry count, and deterministically writes review-safe gloss chunks plus compact classifier arrays and metadata. `build-data.js` reads `hanzi-writer-data.json`, writes 64 compact binary shards, and verifies every decoded record against the source within the documented 0.0005-unit coordinate tolerance.
+
+The pinned source snapshots and build scripts are included in the source submission but excluded from the runtime ZIP through `.web-extignore`.
+
+## Pinned data versions
+
+### CC-CEDICT
+
+- Runtime data version: `2026-08-04.1`
+- Upstream format: CC-CEDICT v1 `ts`, UTF-8
+- Snapshot timestamp: `2026-08-04T08:01:42Z`
+- Declared entries: 124,758
+- Download: `https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.txt.gz`
+- Gzip SHA-256: `ec2770cf2002b7b877b16c0273d310d6856d57cabd5d4dc252308a91d536c7d7`
+- Text SHA-256: `f3183b6d6b2b976736639002daf756e9e9be2837a44b1d0ea5d80b27a9892e1f`
+- License: CC BY-SA 4.0
+
+The runtime projection indexes Traditional and Simplified forms independently, retains separate senses at the background API boundary, and stores classifiers as `[Traditional, Simplified, Mandarin]` arrays. The bundled phonetic engine supplies offline word readings; the background returns normalized structured entries with variants, Pinyin, Jyutping, senses, classifiers, references, and HSK where available.
+
+### Stroke data
+
+- Source: `hanzi-writer-data.json`
+- Source SHA-256: `ee4a5f07cb959819c3457511fed69748bf50ab3c9dfb61037f074746376fe604`
+- Characters: 9,574
+- Runtime shards: 64
+- Encoding: SVG command opcodes plus ZigZag delta-varint coordinates at millith-unit precision (maximum 0.0005-unit error)
+
+## Bundled third-party code
+
+| Runtime file | Readable upstream source |
+|---|---|
+| `opencc.js` | `https://github.com/nk2028/opencc-js` |
+| `hanzi-writer.min.js` | `https://github.com/chanind/hanzi-writer` |
+| `pinyin-web-engine.js`, `annotate-dat.txt` | Annotator Generator: `https://ssb22.user.srcf.net/adjuster/annogen.html` |
+
+`converter.js`, `core.js`, `user-store.js`, `background.js`, `content.js`, `overlay.js`, `popup-v2.js`, and all CSS/HTML are readable first-party source in this repository.

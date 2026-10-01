@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="und">
+<head>
+  <meta charset="utf-8">
+  <title>Compact annotation safety fixture</title>
+  <link rel="stylesheet" href="../../annotation.css">
+  <style>
+    body { margin: 20px; font: 14px/1.35 system-ui, sans-serif; }
+    .video-card { width: 274px; padding: 8px; color: white; background: #090909; }
+    .video-title { display: block; overflow: hidden; color: inherit; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    .line-clamp { display: -webkit-box; width: 430px; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+    article { width: 800px; margin-top: 24px; font-size: 18px; line-height: 1.7; }
+  </style>
+</head>
+<body>
+  <section class="video-card">
+    <a class="video-title segmented-japanese-title"><span>【英語</span><span>アレンジ】作業用</span> BGM</a>
+    <div>929K views · 11 years ago</div>
+  </section>
+  <div class="line-clamp" lang="zh-Hant">這個中文卡片標題不應因為讀音標註而改變原本的兩行高度。</div>
+  <article lang="zh-Hant">這是一段寬版閱讀內容，在空間足夠時仍然可以使用完整的多層標註。</article>
+<script>
+    (() => {
+      const han = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/u;
+      const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[character]);
+      const rubyHtml = (text, reading) => Array.from(String(text)).map((character) => han.test(character)
+        ? `<ruby><rb>${escapeHtml(character)}</rb><rt>${reading}</rt></ruby>`
+        : escapeHtml(character)).join("");
+      const glosses = (text) => Object.fromEntries(Array.from(String(text)).filter((character) => han.test(character)).map((character) => [character, "fixture gloss"]));
+      const messageListeners = [];
+      globalThis.chrome = {
+        runtime: {
+          lastError: null,
+          getURL: (path) => path,
+          onMessage: { addListener: (listener) => messageListeners.push(listener) },
+          sendMessage(message, callback) {
+            let response = {};
+            if (message.type === "get-settings") {
+              response = { settings: { ...CombinedAnnotatorCore.DEFAULT_SETTINGS, showJyutping: true, showPinyin: true, showEnglish: true }, enabled: true };
+            } else if (message.type === "annotate-text") {
+              response = {
+                annotatorText: message.text,
+                pinyinHtml: rubyHtml(message.text, "pīn"),
+                jyutpingHtml: rubyHtml(message.text, "jyut1"),
+                cedictGlosses: glosses(message.text),
+                hskLevels: {}
+              };
+            } else if (message.type === "dictionary-lookup") {
+              const headword = Array.from(message.text || "中")[Number(message.offset) || 0] || "中";
+              response = { entries: [{ headword, simplified: headword, traditional: headword, pinyin: "pīn", jyutping: "jyut1", senses: ["fixture definition"], classifiers: [], references: [], savedContexts: [] }] };
+            }
+            callback(response);
+          }
+        }
+      };
+    })();
+  </script>
+  <script src="../../core.js"></script>
+  <script src="../../content.js"></script>
+  <script src="../../overlay.js"></script>
+</body>
+</html>

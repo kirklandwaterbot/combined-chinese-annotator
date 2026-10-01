@@ -1,14 +1,20 @@
 {
-  "name": "combined-annotator",
-  "version": "1.0.0",
-  "description": "Chinese character annotator for Pinyin and Jyutping",
-  "scripts": {
-    "start": "web-ext run --source-dir .",
-    "build": "web-ext build --source-dir . --overwrite-dest --ignore-files ccedict-glosses.json hanzi-writer-data.json",
-    "lint": "web-ext lint --source-dir .",
-    "test": "node tests/engine.test.js"
-  },
-  "devDependencies": {
-    "web-ext": "^8.2.0"
-  }
+    "name":  "combined-annotator",
+    "version":  "0.2.4",
+    "description":  "Offline adaptive Chinese annotator and learning tools for Pinyin and Jyutping",
+    "scripts":  {
+                    "start":  "npm run prepare:firefox && web-ext run --source-dir web-ext-artifacts/firefox-unpacked",
+                    "prepare:firefox":  "node build-extension.js --prepare-firefox",
+                    "build":  "node build-extension.js && node tests/package-size.test.js",
+                    "lint":  "node build-extension.js --lint",
+                    "test":  "node tests/engine.test.js && node tests/core.test.js && node tests/lexicon.test.js && node tests/browser-contract.test.js && node tests/stroke-data.test.js",
+                    "build:data":  "node build-lexicon.js && node build-data.js",
+                    "build:firefox-review":  "node build-lexicon.js && node build-data.js && node build-extension.js --build-firefox",
+                    "build:source-review":  "node build-source-package.js",
+                    "build:lexicon":  "node build-lexicon.js",
+                    "verify:package":  "node tests/package-size.test.js"
+                },
+    "devDependencies":  {
+                            "web-ext":  "^8.2.0"
+                        }
 }
