@@ -1,5 +1,7 @@
 # Combined Chinese Annotator
 
+[Terms of Service](https://kirklandwaterbot.github.io/combined-chinese-annotator/terms.html) · [Privacy Policy](https://kirklandwaterbot.github.io/combined-chinese-annotator/PRIVACY.html)
+
 Combined Chinese Annotator 0.2.4 is a local-first Firefox, Chrome, and Microsoft Edge extension for reading and learning Chinese. It adds Pinyin, Jyutping, English glosses, HSK labels, dictionary lookup, saved contexts, review, speech, and stroke practice. Annotation and learning data remain local. Speech can use local/browser voices or an optional user-configured Azure Speech resource.
 
 ## What is new in 0.2.4
