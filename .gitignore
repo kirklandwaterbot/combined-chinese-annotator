@@ -1,8 +1,16 @@
+# Secrets and local config (never commit API keys, e.g. Azure Speech)
+.env*
+!.env.example
+*.key
+*.pem
+secrets.local.*
+
 # Dependencies
 node_modules/
 
 # Build output
 web-ext-artifacts/
+.extension-build/
 *.zip
 *.xpi
 
