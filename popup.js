@@ -411,7 +411,9 @@ async function init() {
 
   // Export Settings
   document.getElementById("export-settings")?.addEventListener("click", async () => {
-    const allSettings = await ext.storage.local.get(null);
+    // Leave the user's Azure Speech key out of the export: this file is meant
+    // to be shareable, and the key would let anyone bill speech to their account.
+    const { azureSpeechConfigV1: _omitAzureKey, ...allSettings } = await ext.storage.local.get(null);
     const blob = new Blob([JSON.stringify(allSettings, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
